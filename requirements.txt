@@ -1,0 +1,16 @@
+# Phase 1 필수 패키지
+boto3>=1.34.0              # AWS SDK
+pynput>=1.7.6              # 입력 모니터링 (마우스/키보드 캡처)
+pyautogui>=0.9.54          # GUI 자동화 (액션 재실행)
+pillow>=10.0.0             # 이미지 처리
+pywin32>=306               # Windows 윈도우 캡처
+
+# Phase 2 패키지
+paddleocr>=2.7.0           # OCR 폴백 (Vision LLM 실패 시)
+paddlepaddle>=2.5.0        # PaddleOCR 의존성
+imagehash>=4.3.0           # 이미지 해시 (화면 전환 검증)
+
+# 테스트 프레임워크
+hypothesis>=6.92.0         # Property-based testing
+pytest>=7.4.0              # 테스트 프레임워크
+pytest-cov>=4.1.0          # 커버리지

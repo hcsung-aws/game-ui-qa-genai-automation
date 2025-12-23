@@ -1,0 +1,120 @@
+{
+  "name": "limbus_test_07",
+  "created_at": "2025-12-24T00:48:17.937937",
+  "script_path": "test_cases\\limbus_test_07.py",
+  "json_path": "test_cases\\limbus_test_07.json",
+  "actions": [
+    {
+      "timestamp": "2025-12-24T00:47:23.064596",
+      "action_type": "click",
+      "x": 966,
+      "y": 279,
+      "description": "클릭 (966, 279)",
+      "screenshot_path": "screenshots/action_0000.png",
+      "button": "left"
+    },
+    {
+      "timestamp": "2025-12-24T00:47:25.937615",
+      "action_type": "wait",
+      "x": 0,
+      "y": 0,
+      "description": "5.3초 대기"
+    },
+    {
+      "timestamp": "2025-12-24T00:47:31.210158",
+      "action_type": "click",
+      "x": 784,
+      "y": 643,
+      "description": "클릭 (784, 643)",
+      "screenshot_path": "screenshots/action_0001.png",
+      "button": "left"
+    },
+    {
+      "timestamp": "2025-12-24T00:47:33.581110",
+      "action_type": "wait",
+      "x": 0,
+      "y": 0,
+      "description": "7.0초 대기"
+    },
+    {
+      "timestamp": "2025-12-24T00:47:40.547597",
+      "action_type": "click",
+      "x": 1015,
+      "y": 369,
+      "description": "클릭 (1015, 369)",
+      "screenshot_path": "screenshots/action_0002.png",
+      "button": "left"
+    },
+    {
+      "timestamp": "2025-12-24T00:47:42.887362",
+      "action_type": "wait",
+      "x": 0,
+      "y": 0,
+      "description": "5.8초 대기"
+    },
+    {
+      "timestamp": "2025-12-24T00:47:48.662321",
+      "action_type": "click",
+      "x": 405,
+      "y": 216,
+      "description": "클릭 (405, 216)",
+      "screenshot_path": "screenshots/action_0003.png",
+      "button": "left"
+    },
+    {
+      "timestamp": "2025-12-24T00:47:50.983773",
+      "action_type": "wait",
+      "x": 0,
+      "y": 0,
+      "description": "3.8초 대기"
+    },
+    {
+      "timestamp": "2025-12-24T00:47:54.827477",
+      "action_type": "click",
+      "x": 311,
+      "y": 523,
+      "description": "클릭 (311, 523)",
+      "screenshot_path": "screenshots/action_0004.png",
+      "button": "left"
+    },
+    {
+      "timestamp": "2025-12-24T00:47:57.130368",
+      "action_type": "wait",
+      "x": 0,
+      "y": 0,
+      "description": "4.4초 대기"
+    },
+    {
+      "timestamp": "2025-12-24T00:48:01.510144",
+      "action_type": "click",
+      "x": 320,
+      "y": 645,
+      "description": "클릭 (320, 645)",
+      "screenshot_path": "screenshots/action_0005.png",
+      "button": "left"
+    },
+    {
+      "timestamp": "2025-12-24T00:48:03.735688",
+      "action_type": "wait",
+      "x": 0,
+      "y": 0,
+      "description": "4.1초 대기"
+    },
+    {
+      "timestamp": "2025-12-24T00:48:07.849786",
+      "action_type": "click",
+      "x": 153,
+      "y": 238,
+      "description": "클릭 (153, 238)",
+      "screenshot_path": "screenshots/action_0006.png",
+      "button": "left"
+    },
+    {
+      "timestamp": "2025-12-24T00:48:10.195613",
+      "action_type": "wait",
+      "x": 0,
+      "y": 0,
+      "description": "0.9초 대기"
+    }
+  ]
+}

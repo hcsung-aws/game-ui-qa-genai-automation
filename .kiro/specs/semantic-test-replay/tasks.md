@@ -1,0 +1,168 @@
+# 구현 계획
+
+- [ ] 1. UIAnalyzer 개선 - bounding_box 정보 포함
+  - [ ] 1.1 Vision LLM 프롬프트에 bounding_box 필드 추가
+    - `_build_vision_prompt()` 메서드 수정하여 bounding_box 정보 요청
+    - 응답 JSON 형식에 bounding_box 구조 명시
+    - _Requirements: 1.3, 2.3_
+  - [ ] 1.2 `_parse_ui_response()` 메서드에서 bounding_box 파싱 추가
+    - 각 UI 요소에서 bounding_box 필드 추출
+    - bounding_box 누락 시 x, y, width, height로 계산
+    - _Requirements: 1.3, 2.3_
+  - [ ] 1.3 `find_element_at_position()` 메서드 구현
+    - 주어진 좌표에서 가장 가까운 UI 요소 반환
+    - tolerance 파라미터로 허용 오차 설정
+    - bounding_box 내부 포함 여부 우선 확인
+    - _Requirements: 1.2, 3.2_
+  - [ ] 1.4 Property 테스트: bounding_box 파싱 검증
+    - **Property 1: 클릭 액션의 의미론적 정보 완전성**
+    - **Validates: Requirements 1.3**
+
+- [ ] 2. SemanticAction 데이터 클래스 개선
+  - [ ] 2.1 `screenshot_before_path` 필드 활용 확인 및 문서화
+    - 기존 필드가 있으나 실제 사용되지 않음 확인
+    - 필드 용도 주석 명확화
+    - _Requirements: 1.1, 2.2_
+  - [ ] 2.2 `semantic_info` 구조 표준화
+    - target_element에 bounding_box 필드 포함 명시
+    - confidence 필드 필수화
+    - _Requirements: 1.3, 1.4, 2.1, 2.3_
+  - [ ] 2.3 직렬화/역직렬화 메서드 개선
+    - `to_dict()` 메서드에서 모든 필드 포함 확인
+    - `from_dict()` 메서드에서 중첩 구조 복원 확인
+    - None 필드 처리 일관성 확보
+    - _Requirements: 6.1, 6.2, 6.4, 6.5_
+  - [ ] 2.4 Property 테스트: 직렬화 왕복 동등성
+    - **Property 2: 직렬화 왕복 동등성 (Round-trip Equivalence)**
+    - **Validates: Requirements 2.4, 2.5, 6.1, 6.2, 6.3, 6.4**
+  - [ ] 2.5 Property 테스트: None 필드 직렬화 일관성
+    - **Property 8: None 필드 직렬화 일관성**
+    - **Validates: Requirements 6.5**
+
+- [ ] 3. SemanticActionRecorder 개선 - 클릭 전 분석
+  - [ ] 3.1 `record_click_with_semantic_analysis()` 메서드 구현
+    - 클릭 직전 스크린샷 캡처
+    - Vision LLM으로 클릭 좌표의 UI 요소 분석
+    - semantic_info 구성 및 저장
+    - 클릭 후 스크린샷 캡처 (기존 검증용 유지)
+    - _Requirements: 1.1, 1.2, 1.3, 1.4_
+  - [ ] 3.2 `_analyze_target_element()` 메서드 구현
+    - UIAnalyzer.find_element_at_position() 활용
+    - target_element 구조 생성 (type, text, description, bounding_box, confidence)
+    - _Requirements: 1.3_
+  - [ ] 3.3 Vision LLM 실패 시 OCR 폴백 로직 추가
+    - analyze_with_retry() 실패 시 OCR 결과 활용
+    - OCR 결과로 부분적 semantic_info 구성
+    - _Requirements: 1.5_
+  - [ ] 3.4 Property 테스트: 클릭 액션 의미론적 정보 완전성
+    - **Property 1: 클릭 액션의 의미론적 정보 완전성**
+    - **Validates: Requirements 1.3, 1.4**
+
+- [ ] 4. Checkpoint - 기록 기능 테스트
+  - Ensure all tests pass, ask the user if questions arise.
+
+- [ ] 5. SemanticActionReplayer 개선 - 의미론적 매칭
+  - [ ] 5.1 `_calculate_text_similarity()` 메서드 구현
+    - 두 텍스트 문자열의 유사도 계산 (0.0 ~ 1.0)
+    - 대소문자 무시, 공백 정규화
+    - 부분 문자열 매칭 지원
+    - _Requirements: 3.2_
+  - [ ] 5.2 Property 테스트: 텍스트 유사도 대칭성
+    - **Property 4: 텍스트 유사도 대칭성**
+    - **Validates: Requirements 3.2**
+  - [ ] 5.3 `_find_matching_element()` 메서드 개선
+    - 현재 UI 데이터에서 target_element와 매칭되는 요소 탐색
+    - 텍스트 유사도 + 타입 매칭 점수 계산
+    - 가장 높은 점수의 요소와 신뢰도 반환
+    - _Requirements: 3.2_
+  - [ ] 5.4 `replay_click_with_semantic_matching()` 메서드 구현
+    - 현재 화면 캡처 및 UI 분석
+    - _find_matching_element()로 매칭 시도
+    - 신뢰도 0.7 이상이면 매칭된 좌표 사용
+    - 0.7 미만이면 원래 좌표로 폴백
+    - 좌표 차이 로그 기록
+    - _Requirements: 3.1, 3.3, 3.4, 3.5_
+  - [ ] 5.5 Property 테스트: 신뢰도 기반 매칭 결정
+    - **Property 3: 신뢰도 기반 매칭 결정**
+    - **Validates: Requirements 3.3, 3.4**
+  - [ ] 5.6 ReplayResult에 match_confidence 필드 추가
+    - 매칭 신뢰도 점수 기록
+    - _Requirements: 4.2_
+
+- [ ] 6. Checkpoint - 재현 기능 테스트
+  - Ensure all tests pass, ask the user if questions arise.
+
+- [ ] 7. ReplayVerifier 개선 - 통계 리포팅
+  - [ ] 7.1 매칭 방법별 통계 계산 추가
+    - semantic_match_count, coordinate_match_count, failed_count 계산
+    - 평균 및 최대 좌표 변위 계산
+    - _Requirements: 4.1, 4.3_
+  - [ ] 7.2 `get_statistics()` 메서드 개선
+    - 매칭 방법 분류 포함
+    - 신뢰도 점수 통계 포함
+    - _Requirements: 4.1, 4.4_
+  - [ ] 7.3 Property 테스트: 재생 통계 일관성
+    - **Property 7: 재생 통계 일관성**
+    - **Validates: Requirements 4.1, 4.4**
+
+- [ ] 8. TestCaseEnricher 구현 - 기존 테스트 보강
+  - [ ] 8.1 `TestCaseEnricher` 클래스 생성
+    - ConfigManager, UIAnalyzer 의존성 주입
+    - EnrichmentResult 데이터 클래스 정의
+    - _Requirements: 5.1_
+  - [ ] 8.2 `is_legacy_test_case()` 메서드 구현
+    - semantic_info 필드 누락 또는 비어있는 클릭 액션 감지
+    - _Requirements: 5.1_
+  - [ ] 8.3 Property 테스트: 레거시 테스트 케이스 감지 정확성
+    - **Property 6: 레거시 테스트 케이스 감지 정확성**
+    - **Validates: Requirements 5.1**
+  - [ ] 8.4 `_enrich_action()` 메서드 구현
+    - 스크린샷 파일 로드
+    - Vision LLM으로 분석
+    - semantic_info 필드 추가
+    - 기존 필드 유지
+    - _Requirements: 5.2, 5.3, 5.6_
+  - [ ] 8.5 `enrich_test_case()` 메서드 구현
+    - 모든 클릭 액션에 대해 _enrich_action() 호출
+    - 스크린샷 누락 시 해당 액션 스킵
+    - 버전 식별자 업데이트
+    - EnrichmentResult 반환
+    - _Requirements: 5.2, 5.3, 5.4, 5.5_
+  - [ ] 8.6 Property 테스트: 보강 시 기존 데이터 보존
+    - **Property 5: 보강 시 기존 데이터 보존**
+    - **Validates: Requirements 5.6**
+
+- [ ] 9. Checkpoint - 보강 기능 테스트
+  - Ensure all tests pass, ask the user if questions arise.
+
+- [ ] 10. 테스트 케이스 저장/로드 통합
+  - [ ] 10.1 ScriptGenerator에서 semantic_info 저장 지원
+    - JSON 저장 시 semantic_info 필드 포함
+    - screenshot_before_path 필드 포함
+    - _Requirements: 2.1, 2.2, 2.3_
+  - [ ] 10.2 테스트 케이스 로드 시 semantic_info 복원
+    - JSON 로드 시 SemanticAction으로 변환
+    - 중첩 구조 완전 복원
+    - _Requirements: 2.4, 2.5_
+
+- [ ] 11. CLI 인터페이스 업데이트
+  - [ ] 11.1 `enrich` 명령어 추가
+    - 기존 테스트 케이스 보강 기능
+    - 보강 결과 출력
+    - _Requirements: 5.2, 5.4_
+  - [ ] 11.2 재생 결과에 매칭 통계 출력 추가
+    - semantic vs coordinate 매칭 비율 표시
+    - 좌표 변위 통계 표시
+    - _Requirements: 4.1, 4.3, 4.4_
+
+- [ ] 12. 통합 테스트
+  - [ ] 12.1 전체 기록 → 저장 → 로드 → 재현 흐름 테스트
+    - 의미론적 정보가 올바르게 저장되고 활용되는지 검증
+    - _Requirements: 1.1-1.5, 2.1-2.5, 3.1-3.5_
+  - [ ] 12.2 레거시 테스트 케이스 보강 → 재현 흐름 테스트
+    - 보강 후 의미론적 재현이 동작하는지 검증
+    - 기존 검증 기능 유지 확인
+    - _Requirements: 5.1-5.7_
+
+- [ ] 13. Final Checkpoint - 전체 테스트 통과 확인
+  - Ensure all tests pass, ask the user if questions arise.
