@@ -147,13 +147,14 @@ ACTIONS = [
     },
 ]
 
-def replay_actions(action_delay=0.5, verify=False, test_case_name="unknown"):
+def replay_actions(action_delay=0.5, verify=False, test_case_name="unknown", skip_wait=True):
     """액션을 순서대로 재실행
     
     Args:
         action_delay: 액션 간 지연 시간 (초)
         verify: 검증 모드 활성화 여부
         test_case_name: 테스트 케이스 이름 (검증 모드용)
+        skip_wait: 검증 모드에서 대기 액션 건너뛰기 (기본: True)
     """
     verifier = None
     
@@ -164,6 +165,10 @@ def replay_actions(action_delay=0.5, verify=False, test_case_name="unknown"):
         verifier = ReplayVerifier(config)
         verifier.start_verification_session(test_case_name)
         print("✓ 검증 모드 활성화")
+        if skip_wait:
+            print("✓ 빠른 검증 모드: 대기 시간 건너뛰기")
+        else:
+            print("✓ 전체 재현 모드: 대기 시간 포함")
     elif verify and not VERIFY_AVAILABLE:
         print("⚠ 검증 모듈을 로드할 수 없습니다. 검증 없이 진행합니다.")
     
@@ -187,16 +192,19 @@ def replay_actions(action_delay=0.5, verify=False, test_case_name="unknown"):
         pass
 
     # 액션 2: '5.3초 대기'
-    print(f'[2/14] ' + '5.3초 대기')
-    try:
-        time.sleep(5.3)
-        # 액션 간 지연 시간
-        if action_delay > 0:
-            time.sleep(action_delay)
-    except Exception as e:
-        print(f'  ❌ 액션 실행 실패: {e}')
-        # 오류가 발생해도 계속 진행 (Requirements 9.5)
-        pass
+    # 검증 모드 + skip_wait일 때 대기 건너뛰기
+    if verify and skip_wait:
+        print(f'[2/14] ' + '5.3초 대기 (건너뜀)')
+    else:
+        print(f'[2/14] ' + '5.3초 대기')
+        try:
+            time.sleep(5.3)
+            # 액션 간 지연 시간
+            if action_delay > 0:
+                time.sleep(action_delay)
+        except Exception as e:
+            print(f'  ❌ 액션 실행 실패: {e}')
+            pass
 
     # 액션 3: '클릭 (784, 643)'
     print(f'[3/14] ' + '클릭 (784, 643)')
@@ -215,16 +223,19 @@ def replay_actions(action_delay=0.5, verify=False, test_case_name="unknown"):
         pass
 
     # 액션 4: '7.0초 대기'
-    print(f'[4/14] ' + '7.0초 대기')
-    try:
-        time.sleep(7.0)
-        # 액션 간 지연 시간
-        if action_delay > 0:
-            time.sleep(action_delay)
-    except Exception as e:
-        print(f'  ❌ 액션 실행 실패: {e}')
-        # 오류가 발생해도 계속 진행 (Requirements 9.5)
-        pass
+    # 검증 모드 + skip_wait일 때 대기 건너뛰기
+    if verify and skip_wait:
+        print(f'[4/14] ' + '7.0초 대기 (건너뜀)')
+    else:
+        print(f'[4/14] ' + '7.0초 대기')
+        try:
+            time.sleep(7.0)
+            # 액션 간 지연 시간
+            if action_delay > 0:
+                time.sleep(action_delay)
+        except Exception as e:
+            print(f'  ❌ 액션 실행 실패: {e}')
+            pass
 
     # 액션 5: '클릭 (1015, 369)'
     print(f'[5/14] ' + '클릭 (1015, 369)')
@@ -243,16 +254,19 @@ def replay_actions(action_delay=0.5, verify=False, test_case_name="unknown"):
         pass
 
     # 액션 6: '5.8초 대기'
-    print(f'[6/14] ' + '5.8초 대기')
-    try:
-        time.sleep(5.8)
-        # 액션 간 지연 시간
-        if action_delay > 0:
-            time.sleep(action_delay)
-    except Exception as e:
-        print(f'  ❌ 액션 실행 실패: {e}')
-        # 오류가 발생해도 계속 진행 (Requirements 9.5)
-        pass
+    # 검증 모드 + skip_wait일 때 대기 건너뛰기
+    if verify and skip_wait:
+        print(f'[6/14] ' + '5.8초 대기 (건너뜀)')
+    else:
+        print(f'[6/14] ' + '5.8초 대기')
+        try:
+            time.sleep(5.8)
+            # 액션 간 지연 시간
+            if action_delay > 0:
+                time.sleep(action_delay)
+        except Exception as e:
+            print(f'  ❌ 액션 실행 실패: {e}')
+            pass
 
     # 액션 7: '클릭 (405, 216)'
     print(f'[7/14] ' + '클릭 (405, 216)')
@@ -271,16 +285,19 @@ def replay_actions(action_delay=0.5, verify=False, test_case_name="unknown"):
         pass
 
     # 액션 8: '3.8초 대기'
-    print(f'[8/14] ' + '3.8초 대기')
-    try:
-        time.sleep(3.8)
-        # 액션 간 지연 시간
-        if action_delay > 0:
-            time.sleep(action_delay)
-    except Exception as e:
-        print(f'  ❌ 액션 실행 실패: {e}')
-        # 오류가 발생해도 계속 진행 (Requirements 9.5)
-        pass
+    # 검증 모드 + skip_wait일 때 대기 건너뛰기
+    if verify and skip_wait:
+        print(f'[8/14] ' + '3.8초 대기 (건너뜀)')
+    else:
+        print(f'[8/14] ' + '3.8초 대기')
+        try:
+            time.sleep(3.8)
+            # 액션 간 지연 시간
+            if action_delay > 0:
+                time.sleep(action_delay)
+        except Exception as e:
+            print(f'  ❌ 액션 실행 실패: {e}')
+            pass
 
     # 액션 9: '클릭 (311, 523)'
     print(f'[9/14] ' + '클릭 (311, 523)')
@@ -299,16 +316,20 @@ def replay_actions(action_delay=0.5, verify=False, test_case_name="unknown"):
         pass
 
     # 액션 10: '4.4초 대기'
-    print(f'[10/14] ' + '4.4초 대기')
-    try:
-        time.sleep(4.4)
-        # 액션 간 지연 시간
-        if action_delay > 0:
-            time.sleep(action_delay)
-    except Exception as e:
-        print(f'  ❌ 액션 실행 실패: {e}')
-        # 오류가 발생해도 계속 진행 (Requirements 9.5)
-        pass
+    # 검증 모드 + skip_wait일 때 대기 건너뛰기
+    # 검증 모드 + skip_wait일 때 대기 건너뛰기
+    if verify and skip_wait:
+        print(f'[10/14] ' + '4.4초 대기 (건너뜀)')
+    else:
+        print(f'[10/14] ' + '4.4초 대기')
+        try:
+            time.sleep(4.4)
+            # 액션 간 지연 시간
+            if action_delay > 0:
+                time.sleep(action_delay)
+        except Exception as e:
+            print(f'  ❌ 액션 실행 실패: {e}')
+            pass
 
     # 액션 11: '클릭 (320, 645)'
     print(f'[11/14] ' + '클릭 (320, 645)')
@@ -327,16 +348,19 @@ def replay_actions(action_delay=0.5, verify=False, test_case_name="unknown"):
         pass
 
     # 액션 12: '4.1초 대기'
-    print(f'[12/14] ' + '4.1초 대기')
-    try:
-        time.sleep(4.1)
-        # 액션 간 지연 시간
-        if action_delay > 0:
-            time.sleep(action_delay)
-    except Exception as e:
-        print(f'  ❌ 액션 실행 실패: {e}')
-        # 오류가 발생해도 계속 진행 (Requirements 9.5)
-        pass
+    # 검증 모드 + skip_wait일 때 대기 건너뛰기
+    if verify and skip_wait:
+        print(f'[12/14] ' + '4.1초 대기 (건너뜀)')
+    else:
+        print(f'[12/14] ' + '4.1초 대기')
+        try:
+            time.sleep(4.1)
+            # 액션 간 지연 시간
+            if action_delay > 0:
+                time.sleep(action_delay)
+        except Exception as e:
+            print(f'  ❌ 액션 실행 실패: {e}')
+            pass
 
     # 액션 13: '클릭 (153, 238)'
     print(f'[13/14] ' + '클릭 (153, 238)')
@@ -355,16 +379,19 @@ def replay_actions(action_delay=0.5, verify=False, test_case_name="unknown"):
         pass
 
     # 액션 14: '0.9초 대기'
-    print(f'[14/14] ' + '0.9초 대기')
-    try:
-        time.sleep(0.9)
-        # 액션 간 지연 시간
-        if action_delay > 0:
-            time.sleep(action_delay)
-    except Exception as e:
-        print(f'  ❌ 액션 실행 실패: {e}')
-        # 오류가 발생해도 계속 진행 (Requirements 9.5)
-        pass
+    # 검증 모드 + skip_wait일 때 대기 건너뛰기
+    if verify and skip_wait:
+        print(f'[14/14] ' + '0.9초 대기 (건너뜀)')
+    else:
+        print(f'[14/14] ' + '0.9초 대기')
+        try:
+            time.sleep(0.9)
+            # 액션 간 지연 시간
+            if action_delay > 0:
+                time.sleep(action_delay)
+        except Exception as e:
+            print(f'  ❌ 액션 실행 실패: {e}')
+            pass
 
     print()
     print('✓ 재실행 완료')
@@ -384,6 +411,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Replay Script')
     parser.add_argument('--delay', type=float, default=0.5, help='액션 간 지연 시간 (초)')
     parser.add_argument('--verify', action='store_true', help='검증 모드 활성화')
+    parser.add_argument('--full-replay', action='store_true', help='전체 재현 모드 (대기 시간 포함)')
     parser.add_argument('--name', type=str, default='unknown', help='테스트 케이스 이름')
     
     args = parser.parse_args()
@@ -393,5 +421,8 @@ if __name__ == '__main__':
         import os
         args.name = os.path.splitext(os.path.basename(__file__))[0]
     
+    # skip_wait: 검증 모드에서 기본 True, --full-replay 옵션 시 False
+    skip_wait = not args.full_replay
+    
     # 액션 재실행
-    replay_actions(action_delay=args.delay, verify=args.verify, test_case_name=args.name)
+    replay_actions(action_delay=args.delay, verify=args.verify, test_case_name=args.name, skip_wait=skip_wait)

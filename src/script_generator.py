@@ -161,13 +161,14 @@ except ImportError:
         Returns:
             함수 코드 문자열
         """
-        function = '''def replay_actions(action_delay=0.5, verify=False, test_case_name="unknown"):
+        function = '''def replay_actions(action_delay=0.5, verify=False, test_case_name="unknown", skip_wait=True):
     """액션을 순서대로 재실행
     
     Args:
         action_delay: 액션 간 지연 시간 (초)
         verify: 검증 모드 활성화 여부
         test_case_name: 테스트 케이스 이름 (검증 모드용)
+        skip_wait: 검증 모드에서 대기 액션 건너뛰기 (기본: True)
     """
     verifier = None
     
@@ -178,6 +179,10 @@ except ImportError:
         verifier = ReplayVerifier(config)
         verifier.start_verification_session(test_case_name)
         print("✓ 검증 모드 활성화")
+        if skip_wait:
+            print("✓ 빠른 검증 모드: 대기 시간 건너뛰기")
+        else:
+            print("✓ 전체 재현 모드: 대기 시간 포함")
     elif verify and not VERIFY_AVAILABLE:
         print("⚠ 검증 모듈을 로드할 수 없습니다. 검증 없이 진행합니다.")
     
@@ -193,37 +198,60 @@ except ImportError:
             
             # 액션 설명 출력
             function += f"    # 액션 {i}: {safe_description}\n"
-            function += f"    print(f'[{i}/{len(actions)}] ' + {safe_description})\n"
-            function += "    try:\n"
             
-            # 액션 타입별 코드 생성
-            action_code = self._generate_action_code(action)
-            # 들여쓰기 추가 (try 블록 내부)
-            for line in action_code.split('\n'):
-                if line.strip():
-                    function += f"        {line}\n"
+            # wait 액션은 검증 모드에서 skip_wait 옵션에 따라 건너뛸 수 있음
+            if action.action_type == 'wait':
+                function += f"    # 검증 모드 + skip_wait일 때 대기 건너뛰기\n"
+                function += f"    if verify and skip_wait:\n"
+                function += f"        print(f'[{i}/{len(actions)}] ' + {safe_description} + ' (건너뜀)')\n"
+                function += f"    else:\n"
+                function += f"        print(f'[{i}/{len(actions)}] ' + {safe_description})\n"
+                function += f"        try:\n"
+                # wait 액션 코드 생성
+                action_code = self._generate_action_code(action)
+                for line in action_code.split('\n'):
+                    if line.strip():
+                        function += f"            {line}\n"
+                function += f"            # 액션 간 지연 시간\n"
+                function += f"            if action_delay > 0:\n"
+                function += f"                time.sleep(action_delay)\n"
+                function += f"        except Exception as e:\n"
+                function += f"            print(f'  ❌ 액션 실행 실패: {{e}}')\n"
+                function += f"            pass\n"
+                function += "\n"
+            else:
+                function += f"    print(f'[{i}/{len(actions)}] ' + {safe_description})\n"
+                function += "    try:\n"
+                
+                # 액션 타입별 코드 생성
+                action_code = self._generate_action_code(action)
+                # 들여쓰기 추가 (try 블록 내부)
+                for line in action_code.split('\n'):
+                    if line.strip():
+                        function += f"        {line}\n"
+                
+                # 액션 간 지연
+                function += "        # 액션 간 지연 시간\n"
+                function += "        if action_delay > 0:\n"
+                function += "            time.sleep(action_delay)\n"
             
-            # 액션 간 지연
-            function += "        # 액션 간 지연 시간\n"
-            function += "        if action_delay > 0:\n"
-            function += "            time.sleep(action_delay)\n"
-            
-            # 검증 모드: screenshot_path가 있는 액션만 검증
-            if verify_mode and action.screenshot_path:
-                function += "        # 검증 모드: 스크린샷 검증\n"
-                function += "        if verifier:\n"
-                # 다음 액션이 있으면 다음 액션 정보 전달
-                if i < len(actions):
-                    function += f"            next_action = ACTIONS[{i}] if {i} < len(ACTIONS) else None\n"
-                    function += f"            verifier.capture_and_verify({i-1}, ACTIONS[{i-1}], next_action)\n"
-                else:
-                    function += f"            verifier.capture_and_verify({i-1}, ACTIONS[{i-1}], None)\n"
-            
-            function += "    except Exception as e:\n"
-            function += "        print(f'  ❌ 액션 실행 실패: {e}')\n"
-            function += "        # 오류가 발생해도 계속 진행 (Requirements 9.5)\n"
-            function += "        pass\n"
-            function += "\n"
+            # 검증 모드: screenshot_path가 있는 액션만 검증 (wait 액션이 아닌 경우)
+            if action.action_type != 'wait':
+                if verify_mode and action.screenshot_path:
+                    function += "        # 검증 모드: 스크린샷 검증\n"
+                    function += "        if verifier:\n"
+                    # 다음 액션이 있으면 다음 액션 정보 전달
+                    if i < len(actions):
+                        function += f"            next_action = ACTIONS[{i}] if {i} < len(ACTIONS) else None\n"
+                        function += f"            verifier.capture_and_verify({i-1}, ACTIONS[{i-1}], next_action)\n"
+                    else:
+                        function += f"            verifier.capture_and_verify({i-1}, ACTIONS[{i-1}], None)\n"
+                
+                function += "    except Exception as e:\n"
+                function += "        print(f'  ❌ 액션 실행 실패: {e}')\n"
+                function += "        # 오류가 발생해도 계속 진행 (Requirements 9.5)\n"
+                function += "        pass\n"
+                function += "\n"
         
         function += "    print()\n"
         function += "    print('✓ 재실행 완료')\n"
@@ -367,6 +395,7 @@ except ImportError:
     parser = argparse.ArgumentParser(description='Replay Script')
     parser.add_argument('--delay', type=float, default=0.5, help='액션 간 지연 시간 (초)')
     parser.add_argument('--verify', action='store_true', help='검증 모드 활성화')
+    parser.add_argument('--full-replay', action='store_true', help='전체 재현 모드 (대기 시간 포함)')
     parser.add_argument('--name', type=str, default='unknown', help='테스트 케이스 이름')
     
     args = parser.parse_args()
@@ -376,8 +405,11 @@ except ImportError:
         import os
         args.name = os.path.splitext(os.path.basename(__file__))[0]
     
+    # skip_wait: 검증 모드에서 기본 True, --full-replay 옵션 시 False
+    skip_wait = not args.full_replay
+    
     # 액션 재실행
-    replay_actions(action_delay=args.delay, verify=args.verify, test_case_name=args.name)
+    replay_actions(action_delay=args.delay, verify=args.verify, test_case_name=args.name, skip_wait=skip_wait)
 '''
         return main
 
