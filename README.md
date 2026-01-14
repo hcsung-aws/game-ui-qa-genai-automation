@@ -44,6 +44,30 @@ AWS Bedrock Claude를 활용한 Vision 기반 게임 UI 분석 및 자동화 테
 [테스트 재실행] ← [UI 요소 의미 매칭] ← [화면 캡처 및 분석]
 ```
 
+## 🎬 데모 영상
+
+### 기본 테스트 (좌표 기반)
+
+**녹화**
+
+https://github.com/user-attachments/assets/basic-record.mp4
+
+https://github.com/hcsung-aws/game-ui-qa-genai-automation/raw/main/docs/demo/basic-record.mp4
+
+**재현**
+
+https://github.com/hcsung-aws/game-ui-qa-genai-automation/raw/main/docs/demo/basic-replay.mp4
+
+### 의미론적 테스트 (Vision LLM 기반)
+
+**녹화**
+
+https://github.com/hcsung-aws/game-ui-qa-genai-automation/raw/main/docs/demo/semantic-record.mp4
+
+**재현**
+
+https://github.com/hcsung-aws/game-ui-qa-genai-automation/raw/main/docs/demo/semantic-replay.mp4
+
 ## 🚀 설치
 
 ### 1. Python 환경 설정
@@ -271,6 +295,28 @@ This framework provides two test modes:
 |------|-----------|----------|
 | **Basic Test** | `python main.py` | Coordinate-based recording/replay, fast execution |
 | **Semantic Test** | `python test_semantic_replay_manual.py` | Vision LLM analysis, handles UI changes |
+
+## 🎬 Demo Videos
+
+### Basic Test (Coordinate-based)
+
+**Recording**
+
+https://github.com/hcsung-aws/game-ui-qa-genai-automation/raw/main/docs/demo/basic-record.mp4
+
+**Replay**
+
+https://github.com/hcsung-aws/game-ui-qa-genai-automation/raw/main/docs/demo/basic-replay.mp4
+
+### Semantic Test (Vision LLM-based)
+
+**Recording**
+
+https://github.com/hcsung-aws/game-ui-qa-genai-automation/raw/main/docs/demo/semantic-record.mp4
+
+**Replay**
+
+https://github.com/hcsung-aws/game-ui-qa-genai-automation/raw/main/docs/demo/semantic-replay.mp4
 
 ## 🚀 Installation
 
