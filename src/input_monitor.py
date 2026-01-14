@@ -23,7 +23,8 @@ class Action:
     x: int
     y: int
     description: str
-    screenshot_path: Optional[str] = None
+    screenshot_path: Optional[str] = None  # 액션 후 스크린샷 (화면 전환 완료 후)
+    screenshot_before_path: Optional[str] = None  # 액션 전 스크린샷 (클릭 시점)
     button: Optional[str] = None  # 'left', 'right', 'middle'
     key: Optional[str] = None
     scroll_dx: Optional[int] = None
@@ -42,6 +43,7 @@ class ActionRecorder:
         self.actions: List[Action] = []
         self.last_action_time: Optional[datetime] = None
         self._screenshot_counter = 0
+        self._pending_before_screenshot: Optional[str] = None  # 클릭 전 스크린샷 경로
         
         # 게임 윈도우 캡처 설정
         window_title = config.get('game.window_title', '')
@@ -56,6 +58,34 @@ class ActionRecorder:
         """게임 윈도우 찾기 (최초 1회)"""
         if self._window_capture and not self._window_capture._hwnd:
             self._window_capture.find_window()
+    
+    def _get_window_offset(self) -> tuple:
+        """게임 윈도우의 화면상 오프셋 가져오기
+        
+        Returns:
+            (left, top) 오프셋 튜플. 윈도우를 찾지 못하면 (0, 0) 반환
+        """
+        self._find_game_window()
+        
+        if self._window_capture and self._window_capture._hwnd:
+            rect = self._window_capture.get_window_rect()
+            if rect:
+                return (rect[0], rect[1])  # left, top
+        
+        return (0, 0)
+    
+    def convert_to_window_coords(self, screen_x: int, screen_y: int) -> tuple:
+        """전체 화면 좌표를 게임 윈도우 기준 상대 좌표로 변환
+        
+        Args:
+            screen_x: 전체 화면 X 좌표
+            screen_y: 전체 화면 Y 좌표
+            
+        Returns:
+            (window_x, window_y) 윈도우 기준 상대 좌표
+        """
+        offset_x, offset_y = self._get_window_offset()
+        return (screen_x - offset_x, screen_y - offset_y)
     
     def _capture_game_screenshot(self) -> Optional[any]:
         """게임 윈도우만 스크린샷 캡처
@@ -72,11 +102,35 @@ class ActionRecorder:
             # 윈도우를 찾지 못하면 전체 화면 캡처
             return pyautogui.screenshot()
     
+    def capture_before_screenshot(self) -> Optional[str]:
+        """클릭 전 스크린샷 캡처 (클릭 시점의 화면 상태)
+        
+        InputMonitor에서 클릭 이벤트 발생 시 호출하여
+        클릭 직전의 화면 상태를 캡처한다.
+        
+        Returns:
+            저장된 스크린샷 경로 또는 None
+        """
+        if not self.config.get('automation.screenshot_on_action', False):
+            return None
+        
+        screenshot_dir = self.config.get('automation.screenshot_dir', 'screenshots')
+        screenshot_path = f"{screenshot_dir}/action_{self._screenshot_counter:04d}_before.png"
+        
+        screenshot = self._capture_game_screenshot()
+        if screenshot:
+            screenshot.save(screenshot_path)
+            self._pending_before_screenshot = screenshot_path
+            return screenshot_path
+        
+        return None
+    
     def record_action(self, action: Action):
         """액션 기록
         
         스크린샷은 액션 실행 후 일정 시간 대기 후 캡처한다.
         (화면 전환이 완료된 상태를 캡처하기 위함)
+        클릭 전 스크린샷은 capture_before_screenshot()에서 미리 캡처된 것을 사용한다.
         
         Args:
             action: 기록할 액션
@@ -95,7 +149,12 @@ class ActionRecorder:
                 )
                 self.actions.append(wait_action)
         
-        # 스크린샷 캡처 (설정에 따라)
+        # 클릭 전 스크린샷 설정 (미리 캡처된 것이 있으면)
+        if self._pending_before_screenshot:
+            action.screenshot_before_path = self._pending_before_screenshot
+            self._pending_before_screenshot = None
+        
+        # 스크린샷 캡처 (설정에 따라) - 액션 후 스크린샷
         # 클릭/키 입력 후 화면 전환 시간을 위해 대기 후 캡처
         if self.config.get('automation.screenshot_on_action', False):
             # 캡처 전 대기 (화면 전환 완료 대기)
@@ -226,18 +285,28 @@ class InputMonitor:
         """마우스 클릭 이벤트 핸들러
         
         Args:
-            x: X 좌표
-            y: Y 좌표
+            x: X 좌표 (전체 화면 기준)
+            y: Y 좌표 (전체 화면 기준)
             button: 마우스 버튼
             pressed: 눌림/뗌 상태
         """
         if pressed and self.is_recording:
+            # 클릭 전 스크린샷 캡처 (클릭 시점의 화면 상태)
+            # 예외 발생 시에도 액션 기록은 계속 진행
+            try:
+                self.action_recorder.capture_before_screenshot()
+            except Exception:
+                pass  # 스크린샷 실패해도 액션 기록은 진행
+            
+            # 전체 화면 좌표를 게임 윈도우 기준 상대 좌표로 변환
+            window_x, window_y = self.action_recorder.convert_to_window_coords(x, y)
+            
             action = Action(
                 timestamp=datetime.now().isoformat(),
                 action_type='click',
-                x=x,
-                y=y,
-                description=f'클릭 ({x}, {y})',
+                x=window_x,
+                y=window_y,
+                description=f'클릭 ({window_x}, {window_y})',
                 button=button.name
             )
             self.action_recorder.record_action(action)
@@ -246,17 +315,20 @@ class InputMonitor:
         """마우스 스크롤 이벤트 핸들러
         
         Args:
-            x: X 좌표
-            y: Y 좌표
+            x: X 좌표 (전체 화면 기준)
+            y: Y 좌표 (전체 화면 기준)
             dx: 수평 스크롤 양
             dy: 수직 스크롤 양
         """
         if self.is_recording:
+            # 전체 화면 좌표를 게임 윈도우 기준 상대 좌표로 변환
+            window_x, window_y = self.action_recorder.convert_to_window_coords(x, y)
+            
             action = Action(
                 timestamp=datetime.now().isoformat(),
                 action_type='scroll',
-                x=x,
-                y=y,
+                x=window_x,
+                y=window_y,
                 description=f'스크롤 ({dx}, {dy})',
                 scroll_dx=dx,
                 scroll_dy=dy

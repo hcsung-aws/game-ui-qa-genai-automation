@@ -58,6 +58,9 @@ class ScriptGenerator:
         Returns:
             헤더 문자열
         """
+        # config에서 윈도우 타이틀 가져오기
+        window_title = self.config.get('game.window_title', '')
+        
         header = '''#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
@@ -65,6 +68,9 @@ class ScriptGenerator:
 
 이 스크립트는 기록된 액션을 재실행합니다.
 --verify 옵션으로 검증 모드를 활성화할 수 있습니다.
+
+좌표는 게임 윈도우 기준 상대 좌표로 저장되어 있으며,
+재현 시 윈도우 위치를 감지하여 스크린 절대 좌표로 변환합니다.
 """
 
 import pyautogui
@@ -74,6 +80,57 @@ import os
 
 # 프로젝트 루트를 Python 경로에 추가
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# 윈도우 좌표 변환용 임포트
+try:
+    from src.window_capture import WindowCapture
+    WINDOW_CAPTURE_AVAILABLE = True
+except ImportError:
+    WINDOW_CAPTURE_AVAILABLE = False
+
+# 게임 윈도우 타이틀
+GAME_WINDOW_TITLE = ''' + repr(window_title) + '''
+
+# 윈도우 오프셋 캐시
+_window_offset = None
+
+def get_window_offset():
+    """게임 윈도우의 스크린 오프셋 가져오기
+    
+    Returns:
+        (offset_x, offset_y) 튜플
+    """
+    global _window_offset
+    
+    if _window_offset is not None:
+        return _window_offset
+    
+    if WINDOW_CAPTURE_AVAILABLE and GAME_WINDOW_TITLE:
+        try:
+            wc = WindowCapture(GAME_WINDOW_TITLE)
+            if wc.find_window():
+                rect = wc.get_window_rect()
+                if rect:
+                    _window_offset = (rect[0], rect[1])
+                    return _window_offset
+        except Exception as e:
+            print(f"⚠ 윈도우 오프셋 가져오기 실패: {e}")
+    
+    _window_offset = (0, 0)
+    return _window_offset
+
+def to_screen_coords(window_x, window_y):
+    """윈도우 상대 좌표를 스크린 절대 좌표로 변환
+    
+    Args:
+        window_x: 윈도우 기준 X 좌표
+        window_y: 윈도우 기준 Y 좌표
+        
+    Returns:
+        (screen_x, screen_y) 스크린 절대 좌표
+    """
+    offset_x, offset_y = get_window_offset()
+    return (window_x + offset_x, window_y + offset_y)
 
 '''
         if verify_mode:
@@ -172,6 +229,13 @@ except ImportError:
     """
     verifier = None
     
+    # 윈도우 오프셋 미리 가져오기
+    offset_x, offset_y = get_window_offset()
+    if offset_x != 0 or offset_y != 0:
+        print(f"✓ 게임 윈도우 감지: 오프셋 ({offset_x}, {offset_y})")
+    else:
+        print("⚠ 게임 윈도우를 찾지 못했습니다. 좌표가 정확하지 않을 수 있습니다.")
+    
     # 검증 모드 초기화
     if verify and VERIFY_AVAILABLE:
         config = ConfigManager()
@@ -269,6 +333,9 @@ except ImportError:
     def _generate_action_code(self, action: Action) -> str:
         """액션을 Python 코드로 변환
         
+        좌표는 윈도우 상대 좌표로 저장되어 있으므로,
+        to_screen_coords()를 사용하여 스크린 절대 좌표로 변환한다.
+        
         Args:
             action: 변환할 액션
             
@@ -277,7 +344,8 @@ except ImportError:
         """
         if action.action_type == 'click':
             button = action.button or 'left'
-            return f"pyautogui.click({action.x}, {action.y}, button='{button}')"
+            # 윈도우 상대 좌표를 스크린 절대 좌표로 변환하여 클릭
+            return f"screen_x, screen_y = to_screen_coords({action.x}, {action.y}); pyautogui.click(screen_x, screen_y, button='{button}')"
         
         elif action.action_type == 'key_press':
             if action.key:
@@ -293,7 +361,8 @@ except ImportError:
         elif action.action_type == 'scroll':
             scroll_dy = action.scroll_dy or 0
             if scroll_dy != 0:
-                return f"pyautogui.scroll({scroll_dy * 100}, {action.x}, {action.y})"
+                # 윈도우 상대 좌표를 스크린 절대 좌표로 변환하여 스크롤
+                return f"screen_x, screen_y = to_screen_coords({action.x}, {action.y}); pyautogui.scroll({scroll_dy * 100}, screen_x, screen_y)"
             return "pass  # 스크롤 양 없음"
         
         elif action.action_type == 'wait':
@@ -320,6 +389,14 @@ except ImportError:
     print(f"총 {len(actions)}개의 액션을 재실행합니다...")
     print()
     
+    # 윈도우 오프셋 미리 가져오기
+    offset_x, offset_y = get_window_offset()
+    if offset_x != 0 or offset_y != 0:
+        print(f"✓ 게임 윈도우 감지: 오프셋 ({offset_x}, {offset_y})")
+    else:
+        print("⚠ 게임 윈도우를 찾지 못했습니다. 좌표가 정확하지 않을 수 있습니다.")
+    print()
+    
     for i, action in enumerate(actions, 1):
         action_type = action['action_type']
         x = action['x']
@@ -331,9 +408,10 @@ except ImportError:
         
         try:
             if action_type == 'click':
-                # 마우스 클릭 실행
+                # 윈도우 상대 좌표를 스크린 절대 좌표로 변환
+                screen_x, screen_y = to_screen_coords(x, y)
                 button = action.get('button', 'left')
-                pyautogui.click(x, y, button=button)
+                pyautogui.click(screen_x, screen_y, button=button)
                 
             elif action_type == 'key_press':
                 # 키보드 입력 실행
@@ -349,11 +427,12 @@ except ImportError:
                         pyautogui.write(key)
                 
             elif action_type == 'scroll':
-                # 마우스 스크롤 실행
+                # 윈도우 상대 좌표를 스크린 절대 좌표로 변환
+                screen_x, screen_y = to_screen_coords(x, y)
                 scroll_dy = action.get('scroll_dy', 0)
                 if scroll_dy != 0:
                     # pyautogui는 양수가 위로, 음수가 아래로
-                    pyautogui.scroll(scroll_dy * 100, x, y)
+                    pyautogui.scroll(scroll_dy * 100, screen_x, screen_y)
                 
             elif action_type == 'wait':
                 # 대기 액션 실행
