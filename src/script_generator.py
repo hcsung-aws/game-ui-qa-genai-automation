@@ -1,12 +1,14 @@
 """
 ScriptGenerator - 기록된 액션을 Python 스크립트로 변환
 
-Requirements: 5.1, 5.2, 5.3, 5.4
+Requirements: 5.1, 5.2, 5.3, 5.4, 2.1, 2.2, 2.3
 """
 
+import json
 import re
-from typing import List
+from typing import List, Dict, Any, Union
 from src.input_monitor import Action
+from src.semantic_action_recorder import SemanticAction
 
 
 class ScriptGenerator:
@@ -146,11 +148,16 @@ except ImportError:
 '''
         return header
     
-    def _generate_actions_data(self, actions: List[Action]) -> str:
+    def _generate_actions_data(self, actions: List[Union[Action, SemanticAction]]) -> str:
         """액션 데이터를 Python 리스트로 변환
         
+        SemanticAction의 경우 semantic_info, screenshot_before_path 등 
+        추가 필드도 포함하여 저장한다.
+        
+        Requirements: 2.1, 2.2, 2.3
+        
         Args:
-            actions: 액션 리스트
+            actions: 액션 리스트 (Action 또는 SemanticAction)
             
         Returns:
             액션 데이터 문자열
@@ -184,6 +191,42 @@ except ImportError:
                 data += f"        'scroll_dy': {action.scroll_dy},\n"
             if action.screenshot_path:
                 data += f"        'screenshot_path': '{action.screenshot_path}',\n"
+            
+            # SemanticAction 추가 필드 (Requirements: 2.1, 2.2, 2.3)
+            if isinstance(action, SemanticAction):
+                # screenshot_before_path (Requirements: 2.2)
+                if action.screenshot_before_path:
+                    data += f"        'screenshot_before_path': {repr(action.screenshot_before_path)},\n"
+                
+                # screenshot_after_path
+                if action.screenshot_after_path:
+                    data += f"        'screenshot_after_path': {repr(action.screenshot_after_path)},\n"
+                
+                # click_region_crop_path
+                if action.click_region_crop_path:
+                    data += f"        'click_region_crop_path': {repr(action.click_region_crop_path)},\n"
+                
+                # ui_state_hash_before
+                if action.ui_state_hash_before:
+                    data += f"        'ui_state_hash_before': {repr(action.ui_state_hash_before)},\n"
+                
+                # ui_state_hash_after
+                if action.ui_state_hash_after:
+                    data += f"        'ui_state_hash_after': {repr(action.ui_state_hash_after)},\n"
+                
+                # semantic_info (Requirements: 2.1, 2.3)
+                if action.semantic_info:
+                    # semantic_info를 JSON 형식으로 직렬화
+                    semantic_info_str = json.dumps(action.semantic_info, ensure_ascii=False, indent=12)
+                    # 들여쓰기 조정
+                    semantic_info_str = semantic_info_str.replace('\n', '\n        ')
+                    data += f"        'semantic_info': {semantic_info_str},\n"
+                
+                # screen_transition
+                if action.screen_transition:
+                    screen_transition_str = json.dumps(action.screen_transition, ensure_ascii=False, indent=12)
+                    screen_transition_str = screen_transition_str.replace('\n', '\n        ')
+                    data += f"        'screen_transition': {screen_transition_str},\n"
             
             data += "    },\n"
         
@@ -491,6 +534,149 @@ except ImportError:
     replay_actions(action_delay=args.delay, verify=args.verify, test_case_name=args.name, skip_wait=skip_wait)
 '''
         return main
+
+    def save_test_case_json(
+        self, 
+        actions: List[Union[Action, SemanticAction]], 
+        output_path: str,
+        test_case_name: str = "unknown",
+        semantic_enabled: bool = False
+    ) -> str:
+        """테스트 케이스를 JSON 파일로 저장
+        
+        SemanticAction의 경우 semantic_info, screenshot_before_path 등
+        모든 필드를 포함하여 저장한다.
+        
+        Requirements: 2.1, 2.2, 2.3
+        
+        Args:
+            actions: 액션 리스트 (Action 또는 SemanticAction)
+            output_path: 출력 JSON 파일 경로
+            test_case_name: 테스트 케이스 이름
+            semantic_enabled: 의미론적 기능 활성화 여부
+            
+        Returns:
+            저장된 파일 경로
+        """
+        from datetime import datetime
+        
+        # 액션 데이터 변환
+        actions_data = []
+        for action in actions:
+            if isinstance(action, SemanticAction):
+                # SemanticAction의 to_dict() 메서드 사용
+                action_dict = action.to_dict()
+            else:
+                # 일반 Action의 경우 기본 필드만 저장
+                action_dict = {
+                    "timestamp": action.timestamp,
+                    "action_type": action.action_type,
+                    "x": action.x,
+                    "y": action.y,
+                    "description": action.description,
+                    "screenshot_path": action.screenshot_path,
+                    "button": action.button,
+                    "key": action.key,
+                    "scroll_dx": action.scroll_dx,
+                    "scroll_dy": action.scroll_dy
+                }
+            actions_data.append(action_dict)
+        
+        # 테스트 케이스 구조 생성
+        test_case = {
+            "name": test_case_name,
+            "version": "2.0" if semantic_enabled else "1.0",
+            "created_at": datetime.now().isoformat(),
+            "semantic_enabled": semantic_enabled,
+            "actions": actions_data
+        }
+        
+        # JSON 파일로 저장 (UTF-8 인코딩)
+        with open(output_path, 'w', encoding='utf-8') as f:
+            json.dump(test_case, f, ensure_ascii=False, indent=2)
+        
+        return output_path
+
+    def load_test_case_json(self, input_path: str) -> Dict[str, Any]:
+        """JSON 파일에서 테스트 케이스 로드
+        
+        semantic_info가 포함된 경우 SemanticAction으로 변환하고,
+        그렇지 않으면 일반 Action으로 변환한다.
+        
+        Requirements: 2.4, 2.5
+        
+        Args:
+            input_path: 입력 JSON 파일 경로
+            
+        Returns:
+            테스트 케이스 딕셔너리 (actions 필드에 Action/SemanticAction 리스트 포함)
+        """
+        with open(input_path, 'r', encoding='utf-8') as f:
+            test_case = json.load(f)
+        
+        # 액션 데이터 변환
+        actions = []
+        for action_dict in test_case.get("actions", []):
+            action = self._dict_to_action(action_dict)
+            actions.append(action)
+        
+        # 변환된 액션 리스트로 교체
+        test_case["actions"] = actions
+        
+        return test_case
+
+    def _dict_to_action(self, action_dict: Dict[str, Any]) -> Union[Action, SemanticAction]:
+        """딕셔너리를 Action 또는 SemanticAction으로 변환
+        
+        semantic_info 필드가 있고 비어있지 않으면 SemanticAction으로,
+        그렇지 않으면 일반 Action으로 변환한다.
+        
+        Requirements: 2.4, 2.5
+        
+        Args:
+            action_dict: 액션 딕셔너리
+            
+        Returns:
+            Action 또는 SemanticAction 인스턴스
+        """
+        # semantic_info가 있고 비어있지 않으면 SemanticAction으로 변환
+        semantic_info = action_dict.get("semantic_info", {})
+        has_semantic_fields = (
+            semantic_info or 
+            action_dict.get("screenshot_before_path") or
+            action_dict.get("screen_transition")
+        )
+        
+        if has_semantic_fields:
+            return SemanticAction.from_dict(action_dict)
+        else:
+            # 일반 Action으로 변환
+            return Action(
+                timestamp=action_dict.get("timestamp", ""),
+                action_type=action_dict.get("action_type", ""),
+                x=action_dict.get("x", 0),
+                y=action_dict.get("y", 0),
+                description=action_dict.get("description", ""),
+                screenshot_path=action_dict.get("screenshot_path"),
+                button=action_dict.get("button"),
+                key=action_dict.get("key"),
+                scroll_dx=action_dict.get("scroll_dx"),
+                scroll_dy=action_dict.get("scroll_dy")
+            )
+
+    def load_actions_from_json(self, input_path: str) -> List[Union[Action, SemanticAction]]:
+        """JSON 파일에서 액션 리스트만 로드
+        
+        Requirements: 2.4, 2.5
+        
+        Args:
+            input_path: 입력 JSON 파일 경로
+            
+        Returns:
+            Action 또는 SemanticAction 리스트
+        """
+        test_case = self.load_test_case_json(input_path)
+        return test_case.get("actions", [])
 
 
 if __name__ == '__main__':

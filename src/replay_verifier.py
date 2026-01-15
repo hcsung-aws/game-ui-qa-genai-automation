@@ -25,6 +25,7 @@ from src.screenshot_verifier import ScreenshotVerifier
 from src.ui_analyzer import UIAnalyzer
 from src.accuracy_tracker import AccuracyTracker, ActionExecutionResult
 from src.window_capture import WindowCapture, capture_game_window
+from src.semantic_action_replayer import ReplayResult
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +55,37 @@ class VerificationResult:
         }
 
 
+@dataclass
+class MatchingStatistics:
+    """매칭 방법별 통계 데이터 클래스
+    
+    Requirements: 4.1, 4.3, 4.4
+    """
+    total_actions: int = 0
+    semantic_match_count: int = 0
+    coordinate_match_count: int = 0
+    failed_count: int = 0
+    avg_coordinate_change: float = 0.0
+    max_coordinate_change: float = 0.0
+    avg_match_confidence: float = 0.0
+    min_match_confidence: float = 0.0
+    max_match_confidence: float = 0.0
+    confidence_scores: List[float] = field(default_factory=list)
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "total_actions": self.total_actions,
+            "semantic_match_count": self.semantic_match_count,
+            "coordinate_match_count": self.coordinate_match_count,
+            "failed_count": self.failed_count,
+            "avg_coordinate_change": self.avg_coordinate_change,
+            "max_coordinate_change": self.max_coordinate_change,
+            "avg_match_confidence": self.avg_match_confidence,
+            "min_match_confidence": self.min_match_confidence,
+            "max_match_confidence": self.max_match_confidence
+        }
+
+
 @dataclass 
 class ReplayReport:
     """Replay 검증 보고서"""
@@ -67,10 +99,11 @@ class ReplayReport:
     warning_count: int
     success_rate: float
     verification_results: List[VerificationResult] = field(default_factory=list)
+    matching_statistics: Optional[MatchingStatistics] = None
     summary: str = ""
     
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        result = {
             "test_case_name": self.test_case_name,
             "session_id": self.session_id,
             "start_time": self.start_time,
@@ -83,6 +116,9 @@ class ReplayReport:
             "verification_results": [r.to_dict() for r in self.verification_results],
             "summary": self.summary
         }
+        if self.matching_statistics:
+            result["matching_statistics"] = self.matching_statistics.to_dict()
+        return result
 
 
 class ReplayVerifier:
@@ -507,3 +543,149 @@ class ReplayVerifier:
         print(report.summary)
         print("=" * 60)
         print()
+    
+    def calculate_matching_statistics(self, replay_results: List[ReplayResult]) -> MatchingStatistics:
+        """매칭 방법별 통계 계산
+        
+        Requirements: 4.1, 4.3
+        
+        Args:
+            replay_results: SemanticActionReplayer의 ReplayResult 리스트
+            
+        Returns:
+            MatchingStatistics 객체
+        """
+        if not replay_results:
+            return MatchingStatistics()
+        
+        total = len(replay_results)
+        
+        # 매칭 방법별 카운트 (Requirements: 4.1)
+        semantic_count = sum(1 for r in replay_results if r.method == 'semantic')
+        coordinate_count = sum(1 for r in replay_results if r.method == 'coordinate')
+        # 'direct'도 coordinate 기반으로 간주 (원래 좌표 그대로 사용)
+        direct_count = sum(1 for r in replay_results if r.method == 'direct')
+        failed_count = sum(1 for r in replay_results if r.method == 'failed')
+        
+        # 좌표 변위 계산 (Requirements: 4.3)
+        coord_changes = []
+        for r in replay_results:
+            if r.coordinate_change is not None:
+                dx, dy = r.coordinate_change
+                distance = (dx ** 2 + dy ** 2) ** 0.5
+                coord_changes.append(distance)
+        
+        avg_coord_change = sum(coord_changes) / len(coord_changes) if coord_changes else 0.0
+        max_coord_change = max(coord_changes) if coord_changes else 0.0
+        
+        # 신뢰도 점수 통계 (Requirements: 4.2)
+        confidence_scores = [r.match_confidence for r in replay_results if r.match_confidence > 0]
+        avg_confidence = sum(confidence_scores) / len(confidence_scores) if confidence_scores else 0.0
+        min_confidence = min(confidence_scores) if confidence_scores else 0.0
+        max_confidence = max(confidence_scores) if confidence_scores else 0.0
+        
+        return MatchingStatistics(
+            total_actions=total,
+            semantic_match_count=semantic_count,
+            coordinate_match_count=coordinate_count + direct_count,
+            failed_count=failed_count,
+            avg_coordinate_change=avg_coord_change,
+            max_coordinate_change=max_coord_change,
+            avg_match_confidence=avg_confidence,
+            min_match_confidence=min_confidence,
+            max_match_confidence=max_confidence,
+            confidence_scores=confidence_scores
+        )
+    
+    def get_statistics(self, replay_results: List[ReplayResult]) -> Dict[str, Any]:
+        """재생 통계 반환
+        
+        Requirements: 4.1, 4.4
+        
+        매칭 방법 분류와 신뢰도 점수 통계를 포함한 통계 딕셔너리를 반환한다.
+        
+        Args:
+            replay_results: SemanticActionReplayer의 ReplayResult 리스트
+            
+        Returns:
+            통계 딕셔너리
+        """
+        stats = self.calculate_matching_statistics(replay_results)
+        
+        total = stats.total_actions
+        
+        # 매칭 방법별 비율 계산
+        semantic_rate = stats.semantic_match_count / total if total > 0 else 0.0
+        coordinate_rate = stats.coordinate_match_count / total if total > 0 else 0.0
+        failed_rate = stats.failed_count / total if total > 0 else 0.0
+        
+        return {
+            # 기본 통계
+            "total_actions": total,
+            "semantic_match_count": stats.semantic_match_count,
+            "coordinate_match_count": stats.coordinate_match_count,
+            "failed_count": stats.failed_count,
+            
+            # 비율 (Requirements: 4.4)
+            "semantic_match_rate": semantic_rate,
+            "coordinate_match_rate": coordinate_rate,
+            "failed_rate": failed_rate,
+            
+            # 좌표 변위 통계 (Requirements: 4.3)
+            "avg_coordinate_change": stats.avg_coordinate_change,
+            "max_coordinate_change": stats.max_coordinate_change,
+            
+            # 신뢰도 점수 통계 (Requirements: 4.2)
+            "avg_match_confidence": stats.avg_match_confidence,
+            "min_match_confidence": stats.min_match_confidence,
+            "max_match_confidence": stats.max_match_confidence,
+            
+            # 매칭 방법 분류 (Requirements: 4.4)
+            "matching_breakdown": {
+                "semantic": stats.semantic_match_count,
+                "coordinate": stats.coordinate_match_count,
+                "failed": stats.failed_count
+            }
+        }
+    
+    def generate_report_with_matching_stats(
+        self, 
+        replay_results: List[ReplayResult]
+    ) -> ReplayReport:
+        """매칭 통계를 포함한 검증 보고서 생성
+        
+        Requirements: 4.1, 4.4
+        
+        Args:
+            replay_results: SemanticActionReplayer의 ReplayResult 리스트
+            
+        Returns:
+            ReplayReport 객체 (matching_statistics 포함)
+        """
+        # 기본 보고서 생성
+        report = self.generate_report()
+        
+        # 매칭 통계 추가
+        matching_stats = self.calculate_matching_statistics(replay_results)
+        report.matching_statistics = matching_stats
+        
+        # 요약에 매칭 통계 추가
+        stats_summary = [
+            "",
+            "=== 매칭 통계 ===",
+            f"의미론적 매칭: {matching_stats.semantic_match_count}회",
+            f"좌표 기반 매칭: {matching_stats.coordinate_match_count}회",
+            f"실패: {matching_stats.failed_count}회",
+        ]
+        
+        if matching_stats.avg_coordinate_change > 0:
+            stats_summary.append(f"평균 좌표 변위: {matching_stats.avg_coordinate_change:.1f}px")
+            stats_summary.append(f"최대 좌표 변위: {matching_stats.max_coordinate_change:.1f}px")
+        
+        if matching_stats.avg_match_confidence > 0:
+            stats_summary.append(f"평균 매칭 신뢰도: {matching_stats.avg_match_confidence:.2f}")
+        
+        report.summary += "\n" + "\n".join(stats_summary)
+        
+        return report
+

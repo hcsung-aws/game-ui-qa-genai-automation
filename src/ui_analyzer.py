@@ -140,30 +140,28 @@ class UIAnalyzer:
     def _build_vision_prompt(self) -> str:
         """Vision LLM용 프롬프트 생성
         
+        Requirements: 1.3, 2.3
+        
         Returns:
-            구조화된 프롬프트 문자열
+            구조화된 프롬프트 문자열 (bounding_box 정보 포함)
         """
-        return """당신은 게임 UI 분석 전문가입니다. 제공된 게임 화면 스크린샷을 분석하여 상호작용 가능한 UI 요소들을 식별해주세요.
+        return """You are a game UI analysis expert. Analyze the provided game screenshot and identify interactive UI elements.
 
-다음 형식의 JSON으로 응답해주세요:
-{
-    "buttons": [
-        {"text": "버튼 텍스트", "x": 중심X좌표, "y": 중심Y좌표, "width": 너비, "height": 높이, "confidence": 신뢰도}
-    ],
-    "icons": [
-        {"type": "아이콘 타입", "x": 중심X좌표, "y": 중심Y좌표, "confidence": 신뢰도}
-    ],
-    "text_fields": [
-        {"content": "텍스트 내용", "x": X좌표, "y": Y좌표, "confidence": 신뢰도}
-    ]
-}
+        CRITICAL: You MUST respond with ONLY valid JSON. No explanations, no markdown, no code blocks.
 
-분석 시 주의사항:
-1. 모든 좌표는 픽셀 단위의 정수로 제공
-2. confidence는 0.0~1.0 사이의 값
-3. 버튼, 아이콘, 텍스트 필드를 구분하여 분류
-4. 상호작용 가능한 요소만 포함
-5. JSON만 응답하고 다른 설명은 포함하지 마세요"""
+        Response format (copy this structure exactly):
+        {"buttons":[{"text":"button text","x":100,"y":200,"width":80,"height":40,"bounding_box":{"x":60,"y":180,"width":80,"height":40},"confidence":0.95,"description":"description"}],"icons":[{"type":"icon type","x":100,"y":200,"width":40,"height":40,"bounding_box":{"x":80,"y":180,"width":40,"height":40},"confidence":0.9,"description":"description"}],"text_fields":[{"content":"text content","x":100,"y":200,"width":100,"height":20,"bounding_box":{"x":50,"y":190,"width":100,"height":20},"confidence":0.85}]}
+
+        Rules:
+        1. All coordinates are integers in pixels
+        2. x, y are CENTER coordinates of the element
+        3. bounding_box.x = x - width/2, bounding_box.y = y - height/2
+        4. confidence is a float between 0.0 and 1.0
+        5. Include ONLY interactive elements
+        6. If no elements found, return: {"buttons":[],"icons":[],"text_fields":[]}
+        7. DO NOT include any text outside the JSON object
+        8. DO NOT use markdown code blocks
+        9. Ensure all strings are properly quoted and escaped"""
 
     def analyze_with_vision_llm(self, image: Image.Image) -> dict:
         """Vision LLM으로 UI 분석
@@ -182,7 +180,7 @@ class UIAnalyzer:
             }
             
         Raises:
-            Exception: API 호출 실패 시
+            Exception: API 호출 또는 JSON 파싱 실패 시
         """
         if not self.bedrock_client:
             raise Exception("Bedrock 클라이언트가 초기화되지 않았습니다")
@@ -236,7 +234,7 @@ class UIAnalyzer:
         else:
             raise Exception("Vision LLM 응답에서 텍스트를 찾을 수 없습니다")
         
-        # JSON 파싱
+        # JSON 파싱 (실패 시 예외 발생)
         ui_data = self._parse_ui_response(response_text)
         
         return ui_data
@@ -244,13 +242,16 @@ class UIAnalyzer:
     def _parse_ui_response(self, response_text: str) -> dict:
         """Vision LLM 응답을 파싱하여 UI 요소 정보 추출
         
-        Requirements: 2.4, 2.7
+        Requirements: 1.3, 2.3, 2.4, 2.7
         
         Args:
             response_text: Vision LLM의 응답 텍스트
             
         Returns:
-            UI 요소 정보 딕셔너리
+            UI 요소 정보 딕셔너리 (bounding_box 포함)
+            
+        Raises:
+            json.JSONDecodeError: JSON 파싱 및 복구 모두 실패 시
         """
         # 기본 구조
         default_result = {
@@ -259,49 +260,230 @@ class UIAnalyzer:
             "text_fields": []
         }
         
+        # JSON 문자열 추출
+        json_str = self._extract_json_string(response_text)
+        if not json_str:
+            logger.warning("응답에서 JSON을 찾을 수 없습니다")
+            return default_result
+        
+        # JSON 파싱 시도
         try:
-            # JSON 블록 추출 시도 (```json ... ``` 형식 처리)
-            if '```json' in response_text:
-                start = response_text.find('```json') + 7
-                end = response_text.find('```', start)
-                json_str = response_text[start:end].strip()
-            elif '```' in response_text:
-                start = response_text.find('```') + 3
-                end = response_text.find('```', start)
-                json_str = response_text[start:end].strip()
-            else:
-                # JSON 객체 직접 찾기
-                start = response_text.find('{')
-                end = response_text.rfind('}') + 1
-                if start != -1 and end > start:
-                    json_str = response_text[start:end]
-                else:
-                    logger.warning("응답에서 JSON을 찾을 수 없습니다")
-                    return default_result
-            
-            # JSON 파싱
             ui_data = json.loads(json_str)
+        except json.JSONDecodeError as e:
+            logger.warning(f"JSON 파싱 실패, 복구 시도: {e}")
+            # JSON 복구 시도
+            ui_data = self._try_fix_json(json_str)
+            if ui_data is None:
+                raise  # 복구 실패 시 예외 재발생
+        
+        # 필수 키 확인 및 기본값 설정
+        result = {
+            "buttons": ui_data.get("buttons", []),
+            "icons": ui_data.get("icons", []),
+            "text_fields": ui_data.get("text_fields", [])
+        }
+        
+        # 각 요소의 필수 필드 검증 및 bounding_box 보정
+        result["buttons"] = self._validate_and_enrich_elements(result["buttons"], ["x", "y"])
+        result["icons"] = self._validate_and_enrich_elements(result["icons"], ["x", "y"])
+        result["text_fields"] = self._validate_and_enrich_elements(result["text_fields"], ["x", "y"])
+        
+        return result
+    
+    def _extract_json_string(self, response_text: str) -> Optional[str]:
+        """응답 텍스트에서 JSON 문자열 추출
+        
+        Args:
+            response_text: Vision LLM의 응답 텍스트
             
-            # 필수 키 확인 및 기본값 설정
-            result = {
-                "buttons": ui_data.get("buttons", []),
-                "icons": ui_data.get("icons", []),
-                "text_fields": ui_data.get("text_fields", [])
-            }
+        Returns:
+            추출된 JSON 문자열 또는 None
+        """
+        # JSON 블록 추출 시도 (```json ... ``` 형식 처리)
+        if '```json' in response_text:
+            start = response_text.find('```json') + 7
+            end = response_text.find('```', start)
+            return response_text[start:end].strip()
+        elif '```' in response_text:
+            start = response_text.find('```') + 3
+            end = response_text.find('```', start)
+            return response_text[start:end].strip()
+        else:
+            # JSON 객체 직접 찾기
+            start = response_text.find('{')
+            end = response_text.rfind('}') + 1
+            if start != -1 and end > start:
+                return response_text[start:end]
+        return None
+    
+    def _try_fix_json(self, json_str: str) -> Optional[dict]:
+        """손상된 JSON 문자열 복구 시도
+        
+        일반적인 JSON 오류를 수정하여 파싱을 시도한다:
+        - 후행 쉼표 제거
+        - 잘린 문자열 닫기
+        - 누락된 괄호 추가
+        
+        Args:
+            json_str: 손상된 JSON 문자열
             
-            # 각 요소의 필수 필드 검증
-            result["buttons"] = self._validate_elements(result["buttons"], ["x", "y"])
-            result["icons"] = self._validate_elements(result["icons"], ["x", "y"])
-            result["text_fields"] = self._validate_elements(result["text_fields"], ["x", "y"])
+        Returns:
+            복구된 딕셔너리 또는 None (복구 실패 시)
+        """
+        import re
+        
+        fixed_str = json_str
+        
+        try:
+            # 1. 후행 쉼표 제거 (,] 또는 ,} 패턴)
+            fixed_str = re.sub(r',\s*]', ']', fixed_str)
+            fixed_str = re.sub(r',\s*}', '}', fixed_str)
             
+            # 2. 잘린 문자열 처리 - 열린 따옴표 닫기
+            # 홀수 개의 따옴표가 있으면 마지막에 따옴표 추가
+            quote_count = fixed_str.count('"') - fixed_str.count('\\"')
+            if quote_count % 2 == 1:
+                # 마지막 열린 따옴표 찾아서 닫기
+                last_quote = fixed_str.rfind('"')
+                # 따옴표 뒤에 적절한 종료 추가
+                fixed_str = fixed_str[:last_quote+1] + '"'
+            
+            # 3. 괄호 균형 맞추기
+            open_braces = fixed_str.count('{') - fixed_str.count('}')
+            open_brackets = fixed_str.count('[') - fixed_str.count(']')
+            
+            # 누락된 닫는 괄호 추가
+            fixed_str = fixed_str.rstrip()
+            if fixed_str.endswith(','):
+                fixed_str = fixed_str[:-1]
+            
+            fixed_str += ']' * open_brackets
+            fixed_str += '}' * open_braces
+            
+            # 4. 파싱 시도
+            result = json.loads(fixed_str)
+            logger.info("JSON 복구 성공")
             return result
             
-        except json.JSONDecodeError as e:
-            logger.error(f"JSON 파싱 실패: {e}")
-            return default_result
+        except json.JSONDecodeError:
+            pass
+        
+        # 5. 더 공격적인 복구 시도 - 유효한 부분만 추출
+        try:
+            # buttons, icons, text_fields 배열만 개별 추출 시도
+            result = {"buttons": [], "icons": [], "text_fields": []}
+            
+            for key in ["buttons", "icons", "text_fields"]:
+                pattern = rf'"{key}"\s*:\s*\[(.*?)\]'
+                match = re.search(pattern, json_str, re.DOTALL)
+                if match:
+                    array_content = match.group(1).strip()
+                    if array_content:
+                        # 개별 객체 추출
+                        objects = self._extract_objects_from_array(array_content)
+                        result[key] = objects
+            
+            if any(result.values()):
+                logger.info(f"JSON 부분 복구 성공: buttons={len(result['buttons'])}, icons={len(result['icons'])}, text_fields={len(result['text_fields'])}")
+                return result
+                
         except Exception as e:
-            logger.error(f"응답 파싱 중 오류: {e}")
-            return default_result
+            logger.debug(f"부분 복구 실패: {e}")
+        
+        logger.error("JSON 복구 실패")
+        return None
+    
+    def _extract_objects_from_array(self, array_content: str) -> list:
+        """배열 내용에서 개별 JSON 객체 추출
+        
+        Args:
+            array_content: 배열 내부 문자열 (괄호 제외)
+            
+        Returns:
+            파싱된 객체 리스트
+        """
+        objects = []
+        depth = 0
+        start = -1
+        
+        for i, char in enumerate(array_content):
+            if char == '{':
+                if depth == 0:
+                    start = i
+                depth += 1
+            elif char == '}':
+                depth -= 1
+                if depth == 0 and start != -1:
+                    obj_str = array_content[start:i+1]
+                    try:
+                        obj = json.loads(obj_str)
+                        objects.append(obj)
+                    except json.JSONDecodeError:
+                        # 개별 객체 파싱 실패 시 건너뜀
+                        pass
+                    start = -1
+        
+        return objects
+    
+    def _validate_and_enrich_elements(self, elements: list, required_fields: list) -> list:
+        """UI 요소 리스트에서 필수 필드 검증 및 bounding_box 보정
+        
+        Requirements: 1.3, 2.3
+        
+        Args:
+            elements: UI 요소 리스트
+            required_fields: 필수 필드 목록
+            
+        Returns:
+            유효하고 bounding_box가 보정된 요소 리스트
+        """
+        valid_elements = []
+        for element in elements:
+            if not all(field in element for field in required_fields):
+                logger.warning(f"필수 필드 누락된 요소 제외: {element}")
+                continue
+            
+            # bounding_box 보정: 누락 시 x, y, width, height로 계산
+            element = self._ensure_bounding_box(element)
+            valid_elements.append(element)
+        
+        return valid_elements
+    
+    def _ensure_bounding_box(self, element: dict) -> dict:
+        """UI 요소에 bounding_box가 없으면 x, y, width, height로 계산하여 추가
+        
+        Requirements: 1.3, 2.3
+        
+        Args:
+            element: UI 요소 딕셔너리
+            
+        Returns:
+            bounding_box가 보정된 요소 딕셔너리
+        """
+        # 이미 bounding_box가 있고 유효하면 그대로 반환
+        if 'bounding_box' in element and isinstance(element['bounding_box'], dict):
+            bbox = element['bounding_box']
+            if all(key in bbox for key in ['x', 'y', 'width', 'height']):
+                return element
+        
+        # bounding_box 계산: 중심 좌표와 크기로부터 좌상단 좌표 계산
+        x = element.get('x', 0)
+        y = element.get('y', 0)
+        width = element.get('width', 0)
+        height = element.get('height', 0)
+        
+        # 좌상단 좌표 계산 (중심 좌표 - 크기/2)
+        bbox_x = int(x - width / 2) if width > 0 else x
+        bbox_y = int(y - height / 2) if height > 0 else y
+        
+        element['bounding_box'] = {
+            'x': bbox_x,
+            'y': bbox_y,
+            'width': int(width),
+            'height': int(height)
+        }
+        
+        return element
     
     def _validate_elements(self, elements: list, required_fields: list) -> list:
         """UI 요소 리스트에서 필수 필드가 있는 요소만 필터링
@@ -527,3 +709,124 @@ class UIAnalyzer:
                    f"텍스트 필드 {len(ui_data['text_fields'])}개")
         
         return ui_data
+
+    def find_element_at_position(
+        self, 
+        ui_data: Dict[str, Any], 
+        x: int, 
+        y: int, 
+        tolerance: int = 50
+    ) -> Optional[Dict[str, Any]]:
+        """특정 좌표에서 가장 가까운 UI 요소 찾기
+        
+        Requirements: 1.2, 3.2
+        
+        주어진 좌표에서 가장 가까운 UI 요소를 반환한다.
+        bounding_box 내부에 포함되는 요소를 우선적으로 찾고,
+        없으면 tolerance 범위 내에서 가장 가까운 요소를 반환한다.
+        
+        Args:
+            ui_data: UI 분석 결과 딕셔너리 (buttons, icons, text_fields 포함)
+            x: 찾을 X 좌표
+            y: 찾을 Y 좌표
+            tolerance: 허용 오차 (픽셀 단위, 기본값: 50)
+            
+        Returns:
+            가장 가까운 UI 요소 딕셔너리 또는 None
+            반환되는 요소에는 'element_type' 필드가 추가됨 ('button', 'icon', 'text_field')
+        """
+        # 모든 UI 요소를 하나의 리스트로 수집 (타입 정보 포함)
+        all_elements = []
+        
+        for button in ui_data.get("buttons", []):
+            element = button.copy()
+            element["element_type"] = "button"
+            all_elements.append(element)
+        
+        for icon in ui_data.get("icons", []):
+            element = icon.copy()
+            element["element_type"] = "icon"
+            all_elements.append(element)
+        
+        for text_field in ui_data.get("text_fields", []):
+            element = text_field.copy()
+            element["element_type"] = "text_field"
+            all_elements.append(element)
+        
+        if not all_elements:
+            logger.warning(f"UI 데이터에 요소가 없습니다. 좌표 ({x}, {y})에서 요소를 찾을 수 없습니다.")
+            return None
+        
+        # 1단계: bounding_box 내부에 포함되는 요소 찾기
+        contained_elements = []
+        for element in all_elements:
+            if self._is_point_in_bounding_box(element, x, y):
+                # 중심 좌표와의 거리 계산
+                distance = self._calculate_distance_to_center(element, x, y)
+                contained_elements.append((element, distance))
+        
+        if contained_elements:
+            # bounding_box 내부 요소 중 중심에 가장 가까운 요소 반환
+            contained_elements.sort(key=lambda item: item[1])
+            best_element = contained_elements[0][0]
+            logger.debug(f"좌표 ({x}, {y})가 bounding_box 내부에 포함된 요소 발견: {best_element.get('text', best_element.get('type', best_element.get('content', 'unknown')))}")
+            return best_element
+        
+        # 2단계: tolerance 범위 내에서 가장 가까운 요소 찾기
+        closest_element = None
+        min_distance = float('inf')
+        
+        for element in all_elements:
+            distance = self._calculate_distance_to_center(element, x, y)
+            if distance < min_distance and distance <= tolerance:
+                min_distance = distance
+                closest_element = element
+        
+        if closest_element:
+            logger.debug(f"좌표 ({x}, {y})에서 tolerance {tolerance} 내 가장 가까운 요소 발견 (거리: {min_distance:.1f})")
+            return closest_element
+        
+        logger.warning(f"좌표 ({x}, {y})에서 tolerance {tolerance} 내에 UI 요소를 찾을 수 없습니다.")
+        return None
+
+    def _is_point_in_bounding_box(self, element: Dict[str, Any], x: int, y: int) -> bool:
+        """좌표가 요소의 bounding_box 내부에 있는지 확인
+        
+        Args:
+            element: UI 요소 딕셔너리
+            x: X 좌표
+            y: Y 좌표
+            
+        Returns:
+            bounding_box 내부에 있으면 True, 아니면 False
+        """
+        bbox = element.get("bounding_box")
+        if not bbox or not isinstance(bbox, dict):
+            return False
+        
+        bbox_x = bbox.get("x", 0)
+        bbox_y = bbox.get("y", 0)
+        bbox_width = bbox.get("width", 0)
+        bbox_height = bbox.get("height", 0)
+        
+        # bounding_box 내부 포함 여부 확인
+        return (bbox_x <= x <= bbox_x + bbox_width and 
+                bbox_y <= y <= bbox_y + bbox_height)
+
+    def _calculate_distance_to_center(self, element: Dict[str, Any], x: int, y: int) -> float:
+        """좌표와 요소 중심 간의 유클리드 거리 계산
+        
+        Args:
+            element: UI 요소 딕셔너리
+            x: X 좌표
+            y: Y 좌표
+            
+        Returns:
+            유클리드 거리
+        """
+        import math
+        
+        center_x = element.get("x", 0)
+        center_y = element.get("y", 0)
+        
+        return math.sqrt((center_x - x) ** 2 + (center_y - y) ** 2)

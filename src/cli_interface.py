@@ -62,6 +62,7 @@ class CLIInterface:
   stop               - 입력 기록 중지
   save <name>        - 기록된 액션을 테스트 케이스로 저장
   replay             - 로드된 테스트 케이스 재실행
+  enrich <name>      - 기존 테스트 케이스에 의미론적 정보 추가
   stats [name]       - 테스트 케이스 실행 이력 및 통계 표시
   help               - 도움말 표시
   quit               - 종료
@@ -94,6 +95,8 @@ class CLIInterface:
             self._handle_save(args)
         elif cmd == "replay":
             self._handle_replay()
+        elif cmd == "enrich":
+            self._handle_enrich(args)
         elif cmd == "stats":
             self._handle_stats(args)
         elif cmd == "help":
@@ -193,11 +196,166 @@ class CLIInterface:
             print("테스트 케이스를 재실행합니다...")
             self.controller.replay_test_case()
             print("✓ 재실행이 완료되었습니다.")
+            
+            # 매칭 통계 출력 (Requirements 4.1, 4.3, 4.4)
+            self._display_matching_statistics()
+            
         except ValueError as e:
             print(f"❌ 오류: {e}")
             print("  먼저 'load <이름>' 명령으로 테스트 케이스를 로드하세요.")
         except Exception as e:
             print(f"❌ 재실행 중 오류 발생: {e}")
+    
+    def _display_matching_statistics(self):
+        """재생 결과의 매칭 통계 출력 (Requirements 4.1, 4.3, 4.4)
+        
+        가장 최근 리포트 파일에서 통계를 읽어 출력한다.
+        """
+        import os
+        import json
+        import glob
+        
+        try:
+            # 현재 테스트 케이스 이름 가져오기
+            test_case_name = None
+            if self.controller.current_test_case:
+                test_case_name = self.controller.current_test_case.get('name')
+            
+            if not test_case_name:
+                return
+            
+            # 리포트 디렉토리에서 가장 최근 리포트 파일 찾기
+            reports_dir = 'reports'
+            if not os.path.exists(reports_dir):
+                return
+            
+            # 테스트 케이스 이름으로 시작하는 semantic_report.json 파일 찾기
+            pattern = os.path.join(reports_dir, f"{test_case_name}_*_semantic_report.json")
+            report_files = glob.glob(pattern)
+            
+            if not report_files:
+                return
+            
+            # 가장 최근 파일 선택 (파일명에 타임스탬프 포함)
+            latest_report = max(report_files, key=os.path.getmtime)
+            
+            with open(latest_report, 'r', encoding='utf-8') as f:
+                report_data = json.load(f)
+            
+            # 통계 출력
+            total = report_data.get('total_actions', 0)
+            success = report_data.get('success_count', 0)
+            semantic = report_data.get('semantic_match_count', 0)
+            coordinate = report_data.get('coordinate_match_count', 0)
+            failed = report_data.get('failed_count', 0)
+            
+            if total == 0:
+                return
+            
+            print()
+            print("=" * 50)
+            print("       매칭 통계")
+            print("=" * 50)
+            print(f"  전체 액션 수: {total}")
+            print(f"  성공: {success} ({success/total*100:.1f}%)")
+            print("-" * 50)
+            print(f"  의미론적 매칭: {semantic} ({semantic/total*100:.1f}%)")
+            print(f"  좌표 기반 매칭: {coordinate} ({coordinate/total*100:.1f}%)")
+            print(f"  실패: {failed} ({failed/total*100:.1f}%)")
+            
+            # 좌표 변위 통계 계산 (Requirements 4.3)
+            results = report_data.get('results', [])
+            coord_changes = []
+            confidences = []
+            
+            for r in results:
+                change = r.get('coordinate_change')
+                if change and isinstance(change, (list, tuple)) and len(change) >= 2:
+                    dx, dy = change[0], change[1]
+                    distance = (dx ** 2 + dy ** 2) ** 0.5
+                    coord_changes.append(distance)
+                
+                conf = r.get('match_confidence', 0)
+                if conf > 0:
+                    confidences.append(conf)
+            
+            if coord_changes:
+                avg_change = sum(coord_changes) / len(coord_changes)
+                max_change = max(coord_changes)
+                print("-" * 50)
+                print(f"  평균 좌표 변위: {avg_change:.1f}px")
+                print(f"  최대 좌표 변위: {max_change:.1f}px")
+            
+            if confidences:
+                avg_conf = sum(confidences) / len(confidences)
+                print(f"  평균 매칭 신뢰도: {avg_conf:.2f}")
+            
+            print("=" * 50)
+            print()
+            
+        except Exception as e:
+            # 통계 출력 실패는 무시 (재생 자체는 성공)
+            pass
+    
+    def _handle_enrich(self, args: List[str]):
+        """enrich 명령어 처리 (Requirements 5.2, 5.4)
+        
+        기존 테스트 케이스에 의미론적 정보를 추가한다.
+        
+        Args:
+            args: 명령어 인자 (테스트 케이스 이름)
+        """
+        if not args:
+            print("❌ 사용법: enrich <테스트_케이스_이름>")
+            print("  예: enrich login_test")
+            return
+        
+        name = args[0]
+        
+        try:
+            # 레거시 테스트 케이스 여부 확인
+            print(f"테스트 케이스 '{name}'을(를) 분석합니다...")
+            
+            is_legacy = self.controller.is_legacy_test_case(name)
+            if not is_legacy:
+                print(f"ℹ 테스트 케이스 '{name}'은(는) 이미 의미론적 정보를 포함하고 있습니다.")
+                print("  계속 보강하시겠습니까? (y/n): ", end="")
+                response = input().strip().lower()
+                if response != 'y':
+                    print("  보강을 취소했습니다.")
+                    return
+            
+            # 보강 수행
+            print("의미론적 정보를 추가하는 중...")
+            enriched_test_case, result = self.controller.enrich_test_case(name)
+            
+            # 결과 출력
+            print()
+            print("=" * 50)
+            print("       보강 결과")
+            print("=" * 50)
+            print(f"  테스트 케이스: {name}")
+            print(f"  버전: {result.version}")
+            print("-" * 50)
+            print(f"  전체 액션 수: {result.total_actions}")
+            print(f"  보강 성공: {result.enriched_count}")
+            print(f"  스킵됨: {result.skipped_count}")
+            print(f"  실패: {result.failed_count}")
+            print("-" * 50)
+            
+            # 성공률 계산
+            if result.total_actions > 0:
+                success_rate = (result.enriched_count / result.total_actions) * 100
+                print(f"  보강 성공률: {success_rate:.1f}%")
+            
+            print()
+            print(f"✓ 테스트 케이스 '{name}'이(가) 보강되었습니다.")
+            
+        except FileNotFoundError:
+            print(f"❌ 테스트 케이스를 찾을 수 없습니다: {name}")
+            print("  test_cases 디렉토리에 해당 파일이 있는지 확인하세요.")
+        except Exception as e:
+            print(f"❌ 보강 중 오류 발생: {e}")
     
     def _handle_stats(self, args: List[str]):
         """stats 명령어 처리 (Requirements 15.1, 15.2)
@@ -355,6 +513,25 @@ if __name__ == '__main__':
                     "failure_count": 1
                 }
             }
+        
+        def is_legacy_test_case(self, name):
+            print(f"[Mock] 레거시 테스트 케이스 확인: {name}")
+            return True
+        
+        def enrich_test_case(self, name):
+            print(f"[Mock] 테스트 케이스 보강: {name}")
+            # Mock EnrichmentResult 반환
+            from dataclasses import dataclass
+            
+            @dataclass
+            class MockEnrichmentResult:
+                total_actions: int = 10
+                enriched_count: int = 8
+                skipped_count: int = 1
+                failed_count: int = 1
+                version: str = "2.0"
+            
+            return {"name": name}, MockEnrichmentResult()
     
     # CLI 테스트 실행
     cli = CLIInterface(MockController())

@@ -138,6 +138,8 @@ class TestPhase1IntegrationWorkflow:
         tmp_path = integration_env["tmp_path"]
         
         # 액션 추가
+        # 주의: 마지막 액션이 Key.enter로 끝나면 _remove_trailing_stop_pattern에 의해
+        # 터미널 입력으로 인식되어 제거될 수 있으므로, 다른 키로 끝나도록 함
         test_actions = [
             Action(
                 timestamp="2025-01-01T10:00:00",
@@ -156,8 +158,8 @@ class TestPhase1IntegrationWorkflow:
                 timestamp="2025-01-01T10:00:03",
                 action_type='key_press',
                 x=0, y=0,
-                description='키 입력: enter',
-                key='Key.enter'
+                description='키 입력: space',
+                key='Key.space'
             )
         ]
         
@@ -330,7 +332,11 @@ class TestPhase1ComponentIntegration:
         with open(output_path, 'r', encoding='utf-8') as f:
             content = f.read()
         
-        assert 'pyautogui.click(100, 200' in content
+        # 스크립트 생성기가 윈도우 좌표 변환 기능을 사용하므로
+        # to_screen_coords 함수 호출 또는 직접 좌표 사용 형식 모두 허용
+        assert ('pyautogui.click(100, 200' in content or 
+                'to_screen_coords(100, 200)' in content or
+                'pyautogui.click(screen_x, screen_y' in content)
         assert 'pyautogui.scroll' in content
     
     def test_input_monitor_state_management(self, components):

@@ -10,7 +10,7 @@ Requirements: 1.1, 3.1, 3.8, 5.1, 6.1, 15.1, 15.2
 import os
 import json
 import subprocess
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Tuple
 from datetime import datetime
 
 from src.config_manager import ConfigManager
@@ -18,6 +18,8 @@ from src.game_process_manager import GameProcessManager
 from src.input_monitor import InputMonitor, ActionRecorder, Action
 from src.script_generator import ScriptGenerator
 from src.accuracy_tracker import AccuracyTracker, AccuracyStatistics
+from src.test_case_enricher import TestCaseEnricher, EnrichmentResult
+from src.ui_analyzer import UIAnalyzer
 
 
 class QAAutomationController:
@@ -38,6 +40,8 @@ class QAAutomationController:
         self.input_monitor: Optional[InputMonitor] = None
         self.script_generator: Optional[ScriptGenerator] = None
         self.accuracy_tracker: Optional[AccuracyTracker] = None
+        self.ui_analyzer: Optional[UIAnalyzer] = None
+        self.test_case_enricher: Optional[TestCaseEnricher] = None
         self.current_test_case: Optional[dict] = None
         self._initialized = False
     
@@ -69,6 +73,8 @@ class QAAutomationController:
             self.action_recorder = ActionRecorder(self.config_manager)
             self.input_monitor = InputMonitor(self.action_recorder)
             self.script_generator = ScriptGenerator(self.config_manager)
+            self.ui_analyzer = UIAnalyzer(self.config_manager)
+            self.test_case_enricher = TestCaseEnricher(self.config_manager, self.ui_analyzer)
             
             self._initialized = True
             return True
@@ -179,6 +185,8 @@ class QAAutomationController:
         # 선택적 필드 추가
         if action.screenshot_path:
             result["screenshot_path"] = action.screenshot_path
+        if action.screenshot_before_path:
+            result["screenshot_before_path"] = action.screenshot_before_path
         if action.button:
             result["button"] = action.button
         if action.key:
@@ -303,6 +311,57 @@ class QAAutomationController:
         sessions = tracker.list_sessions()
         
         return sessions
+    
+    def enrich_test_case(self, name: str) -> Tuple[Dict[str, Any], EnrichmentResult]:
+        """테스트 케이스 보강 (Requirements 5.2, 5.4)
+        
+        기존 테스트 케이스에 의미론적 정보를 추가한다.
+        
+        Args:
+            name: 테스트 케이스 이름
+            
+        Returns:
+            (보강된 테스트 케이스, EnrichmentResult) 튜플
+            
+        Raises:
+            FileNotFoundError: 테스트 케이스가 없을 때
+        """
+        self._ensure_initialized()
+        
+        # 테스트 케이스 로드
+        test_case = self.load_test_case(name)
+        
+        # 스크린샷 디렉토리 결정
+        screenshot_dir = self.config_manager.get('automation.screenshot_dir', 'screenshots')
+        
+        # 보강 수행
+        enriched_test_case, result = self.test_case_enricher.enrich_test_case(
+            test_case, screenshot_dir
+        )
+        
+        # 보강된 테스트 케이스 저장
+        test_cases_dir = self.config_manager.get('test_cases.directory', 'test_cases')
+        json_path = os.path.join(test_cases_dir, f"{name}.json")
+        
+        with open(json_path, 'w', encoding='utf-8') as f:
+            json.dump(enriched_test_case, f, indent=2, ensure_ascii=False)
+        
+        self.current_test_case = enriched_test_case
+        return enriched_test_case, result
+    
+    def is_legacy_test_case(self, name: str) -> bool:
+        """레거시 테스트 케이스 여부 확인 (Requirements 5.1)
+        
+        Args:
+            name: 테스트 케이스 이름
+            
+        Returns:
+            레거시 테스트 케이스이면 True
+        """
+        self._ensure_initialized()
+        
+        test_case = self.load_test_case(name)
+        return self.test_case_enricher.is_legacy_test_case(test_case)
     
     def get_execution_statistics(self, test_case_name: str = None) -> Dict[str, Any]:
         """테스트 케이스의 전체 실행 통계 요약 (Requirements 15.2)

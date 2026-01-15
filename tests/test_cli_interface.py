@@ -311,3 +311,191 @@ class TestCLIInterface:
         captured = capsys.readouterr()
         assert 'stats' in captured.out
 
+
+    # ===== enrich 명령어 테스트 (Requirements 5.2, 5.4) =====
+    
+    def test_handle_command_enrich_with_name(self, cli, mock_controller, capsys):
+        """enrich 명령어 처리 - 테스트 케이스 이름 제공 (Requirements 5.2, 5.4)"""
+        # Mock EnrichmentResult
+        from dataclasses import dataclass
+        
+        @dataclass
+        class MockEnrichmentResult:
+            total_actions: int = 10
+            enriched_count: int = 8
+            skipped_count: int = 1
+            failed_count: int = 1
+            version: str = "2.0"
+        
+        mock_controller.is_legacy_test_case = Mock(return_value=True)
+        mock_controller.enrich_test_case = Mock(return_value=(
+            {"name": "my_test"},
+            MockEnrichmentResult()
+        ))
+        
+        result = cli.handle_command(['enrich', 'my_test'])
+        
+        assert result is True
+        mock_controller.is_legacy_test_case.assert_called_once_with('my_test')
+        mock_controller.enrich_test_case.assert_called_once_with('my_test')
+        
+        captured = capsys.readouterr()
+        # 보강 결과 표시 확인
+        assert '보강' in captured.out
+        assert '10' in captured.out  # total_actions
+        assert '8' in captured.out   # enriched_count
+    
+    def test_handle_command_enrich_without_name(self, cli, mock_controller, capsys):
+        """enrich 명령어 처리 - 이름 미제공"""
+        result = cli.handle_command(['enrich'])
+        
+        assert result is True
+        
+        captured = capsys.readouterr()
+        assert '사용법' in captured.out or 'enrich' in captured.out
+    
+    def test_handle_command_enrich_not_found(self, cli, mock_controller, capsys):
+        """enrich 명령어 처리 - 테스트 케이스 없음"""
+        mock_controller.is_legacy_test_case = Mock(side_effect=FileNotFoundError("not found"))
+        
+        result = cli.handle_command(['enrich', 'nonexistent'])
+        
+        assert result is True  # 세션은 계속
+        
+        captured = capsys.readouterr()
+        assert '찾을 수 없습니다' in captured.out or 'nonexistent' in captured.out
+    
+    def test_handle_command_enrich_already_enriched(self, cli, mock_controller, capsys, monkeypatch):
+        """enrich 명령어 처리 - 이미 보강된 테스트 케이스 (취소)"""
+        mock_controller.is_legacy_test_case = Mock(return_value=False)
+        
+        # 사용자 입력 'n' 시뮬레이션
+        monkeypatch.setattr('builtins.input', lambda: 'n')
+        
+        result = cli.handle_command(['enrich', 'already_enriched'])
+        
+        assert result is True
+        mock_controller.is_legacy_test_case.assert_called_once_with('already_enriched')
+        
+        captured = capsys.readouterr()
+        assert '이미' in captured.out or '취소' in captured.out
+    
+    def test_handle_command_enrich_already_enriched_continue(self, cli, mock_controller, capsys, monkeypatch):
+        """enrich 명령어 처리 - 이미 보강된 테스트 케이스 (계속 진행)"""
+        from dataclasses import dataclass
+        
+        @dataclass
+        class MockEnrichmentResult:
+            total_actions: int = 5
+            enriched_count: int = 3
+            skipped_count: int = 2
+            failed_count: int = 0
+            version: str = "2.1"
+        
+        mock_controller.is_legacy_test_case = Mock(return_value=False)
+        mock_controller.enrich_test_case = Mock(return_value=(
+            {"name": "already_enriched"},
+            MockEnrichmentResult()
+        ))
+        
+        # 사용자 입력 'y' 시뮬레이션
+        monkeypatch.setattr('builtins.input', lambda: 'y')
+        
+        result = cli.handle_command(['enrich', 'already_enriched'])
+        
+        assert result is True
+        mock_controller.enrich_test_case.assert_called_once_with('already_enriched')
+        
+        captured = capsys.readouterr()
+        assert '보강' in captured.out
+    
+    def test_display_help_includes_enrich(self, cli, capsys):
+        """도움말에 enrich 명령어 포함 확인"""
+        cli.display_help()
+        
+        captured = capsys.readouterr()
+        assert 'enrich' in captured.out
+
+    # ===== 매칭 통계 출력 테스트 (Requirements 4.1, 4.3, 4.4) =====
+    
+    def test_handle_command_replay_with_statistics(self, cli, mock_controller, capsys, tmp_path, monkeypatch):
+        """replay 명령어 처리 - 매칭 통계 출력 (Requirements 4.1, 4.3, 4.4)"""
+        import json
+        import os
+        
+        # 테스트용 리포트 디렉토리 생성
+        reports_dir = tmp_path / "reports"
+        reports_dir.mkdir()
+        
+        # Mock 테스트 케이스 설정
+        mock_controller.current_test_case = {"name": "test_replay"}
+        
+        # 테스트용 리포트 파일 생성
+        report_data = {
+            "test_name": "test_replay",
+            "total_actions": 10,
+            "success_count": 9,
+            "semantic_match_count": 3,
+            "coordinate_match_count": 6,
+            "failed_count": 1,
+            "results": [
+                {
+                    "action_id": "action_0001",
+                    "success": True,
+                    "method": "semantic",
+                    "coordinate_change": [10, 5],
+                    "match_confidence": 0.85
+                },
+                {
+                    "action_id": "action_0002",
+                    "success": True,
+                    "method": "coordinate",
+                    "coordinate_change": None,
+                    "match_confidence": 0.45
+                }
+            ]
+        }
+        
+        report_file = reports_dir / "test_replay_20260115_120000_semantic_report.json"
+        with open(report_file, 'w', encoding='utf-8') as f:
+            json.dump(report_data, f)
+        
+        # reports 디렉토리를 임시 디렉토리로 변경
+        original_cwd = os.getcwd()
+        monkeypatch.chdir(tmp_path)
+        
+        try:
+            result = cli.handle_command(['replay'])
+            
+            assert result is True
+            mock_controller.replay_test_case.assert_called_once()
+            
+            captured = capsys.readouterr()
+            # 매칭 통계가 출력되어야 함
+            assert '매칭 통계' in captured.out or '재실행' in captured.out
+        finally:
+            monkeypatch.chdir(original_cwd)
+    
+    def test_display_matching_statistics_no_report(self, cli, mock_controller, capsys):
+        """매칭 통계 출력 - 리포트 파일 없음"""
+        mock_controller.current_test_case = {"name": "nonexistent_test"}
+        
+        # 리포트 파일이 없어도 에러 없이 처리되어야 함
+        cli._display_matching_statistics()
+        
+        # 에러 없이 완료되어야 함 (출력 없음)
+        captured = capsys.readouterr()
+        # 에러 메시지가 없어야 함
+        assert '오류' not in captured.out
+        assert '❌' not in captured.out
+    
+    def test_display_matching_statistics_no_test_case(self, cli, mock_controller, capsys):
+        """매칭 통계 출력 - 테스트 케이스 없음"""
+        mock_controller.current_test_case = None
+        
+        # 테스트 케이스가 없어도 에러 없이 처리되어야 함
+        cli._display_matching_statistics()
+        
+        captured = capsys.readouterr()
+        # 에러 메시지가 없어야 함
+        assert '오류' not in captured.out

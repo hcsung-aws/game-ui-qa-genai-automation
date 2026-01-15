@@ -51,8 +51,38 @@ key_strategy = st.one_of(
 # 스크롤 양 전략
 scroll_strategy = st.integers(min_value=-10, max_value=10)
 
-# 의미론적 정보 전략
+# bounding_box 전략 (표준화된 구조)
+bounding_box_strategy = st.fixed_dictionaries({
+    "x": st.integers(min_value=0, max_value=3840),
+    "y": st.integers(min_value=0, max_value=2160),
+    "width": st.integers(min_value=0, max_value=500),
+    "height": st.integers(min_value=0, max_value=500)
+})
+
+# 신뢰도 전략
+confidence_strategy = st.floats(min_value=0.0, max_value=1.0, allow_nan=False, allow_infinity=False)
+
+# 표준화된 target_element 전략 (Requirements: 1.3, 1.4, 2.3)
+standardized_target_element_strategy = st.fixed_dictionaries({
+    "type": st.sampled_from(['button', 'icon', 'text_field', 'unknown']),
+    "text": st.text(min_size=0, max_size=50),
+    "description": st.text(min_size=0, max_size=100),
+    "bounding_box": bounding_box_strategy,
+    "confidence": confidence_strategy
+})
+
+# 의미론적 정보 전략 (표준화된 구조 포함)
 semantic_info_strategy = st.fixed_dictionaries({
+    "intent": st.sampled_from(['click_button', 'text_input', 'scroll_content', 'unknown_action']),
+    "target_element": standardized_target_element_strategy,
+    "context": st.fixed_dictionaries({
+        "screen_state": st.sampled_from(['lobby', 'game', 'menu', 'unknown']),
+        "expected_result": st.sampled_from(['navigation', 'dialog', 'none', 'unknown'])
+    })
+})
+
+# 레거시 의미론적 정보 전략 (visual_features 포함, 이전 버전 호환)
+legacy_semantic_info_strategy = st.fixed_dictionaries({
     "intent": st.sampled_from(['click_button', 'text_input', 'scroll_content', 'unknown_action']),
     "target_element": st.fixed_dictionaries({
         "type": st.sampled_from(['button', 'icon', 'text_field', 'unknown']),
@@ -102,9 +132,223 @@ def create_mock_ui_analyzer():
     mock_analyzer.analyze_with_retry.return_value = {
         "buttons": [{"text": "테스트 버튼", "x": 100, "y": 100, "width": 80, "height": 30, "confidence": 0.95}],
         "icons": [],
-        "text_fields": []
+        "text_fields": [],
+        "source": "vision_llm"
     }
     return mock_analyzer
+
+
+def create_mock_ui_analyzer_with_find_element():
+    """find_element_at_position을 지원하는 Mock UIAnalyzer 생성"""
+    mock_analyzer = Mock()
+    mock_analyzer.analyze_with_retry.return_value = {
+        "buttons": [
+            {
+                "text": "테스트 버튼", 
+                "x": 100, 
+                "y": 100, 
+                "width": 80, 
+                "height": 30, 
+                "bounding_box": {"x": 60, "y": 85, "width": 80, "height": 30},
+                "confidence": 0.95,
+                "description": "테스트 버튼"
+            }
+        ],
+        "icons": [],
+        "text_fields": [],
+        "source": "vision_llm"
+    }
+    
+    def find_element_side_effect(ui_data, x, y, tolerance=50):
+        """좌표에 따라 적절한 요소 반환"""
+        for button in ui_data.get("buttons", []):
+            bx, by = button.get("x", 0), button.get("y", 0)
+            distance = ((bx - x) ** 2 + (by - y) ** 2) ** 0.5
+            if distance <= tolerance:
+                result = button.copy()
+                result["element_type"] = "button"
+                return result
+        return None
+    
+    mock_analyzer.find_element_at_position.side_effect = find_element_side_effect
+    return mock_analyzer
+
+
+# ============================================================================
+# Property 1: 클릭 액션의 의미론적 정보 완전성
+# ============================================================================
+
+@settings(max_examples=100, deadline=None)
+@given(
+    x=st.integers(min_value=50, max_value=150),  # 버튼 근처 좌표
+    y=st.integers(min_value=50, max_value=150),
+    button=st.sampled_from(['left', 'right', 'middle'])
+)
+def test_click_action_semantic_info_completeness(x, y, button):
+    """
+    **Feature: semantic-test-replay, Property 1: 클릭 액션의 의미론적 정보 완전성**
+    
+    *For any* 클릭 액션에 대해, 기록이 완료되면 해당 액션은 반드시 
+    물리적 좌표(x, y)와 semantic_info(target_element 포함)를 모두 포함해야 한다.
+    
+    **Validates: Requirements 1.3, 1.4**
+    """
+    temp_config_path = create_temp_config()
+    
+    try:
+        config = ConfigManager(temp_config_path)
+        config.load_config()
+        
+        # Mock UIAnalyzer 생성 (find_element_at_position 지원)
+        mock_analyzer = create_mock_ui_analyzer_with_find_element()
+        
+        # SemanticActionRecorder 생성
+        recorder = SemanticActionRecorder(config, ui_analyzer=mock_analyzer)
+        
+        # pyautogui.screenshot과 pyautogui.click을 Mock으로 대체
+        with patch('src.semantic_action_recorder.pyautogui') as mock_pyautogui:
+            # Mock 이미지 생성
+            from PIL import Image
+            mock_image = Image.new('RGB', (200, 200), color='blue')
+            mock_pyautogui.screenshot.return_value = mock_image
+            
+            # record_click_with_semantic_analysis 호출
+            semantic_action = recorder.record_click_with_semantic_analysis(
+                x=x,
+                y=y,
+                button=button,
+                perform_click=False,  # 실제 클릭은 수행하지 않음
+                click_delay=0.0  # 테스트에서는 지연 없음
+            )
+        
+        # ========================================
+        # 물리적 좌표 검증 (Requirements: 1.4)
+        # ========================================
+        assert semantic_action.x is not None, "x 좌표가 None입니다"
+        assert semantic_action.y is not None, "y 좌표가 None입니다"
+        assert semantic_action.x == x, f"x 좌표 불일치: {semantic_action.x} != {x}"
+        assert semantic_action.y == y, f"y 좌표 불일치: {semantic_action.y} != {y}"
+        assert semantic_action.action_type == 'click', f"action_type이 'click'이 아닙니다: {semantic_action.action_type}"
+        
+        # ========================================
+        # semantic_info 존재 검증 (Requirements: 1.3, 1.4)
+        # ========================================
+        assert semantic_action.semantic_info is not None, "semantic_info가 None입니다"
+        assert isinstance(semantic_action.semantic_info, dict), "semantic_info가 딕셔너리가 아닙니다"
+        assert len(semantic_action.semantic_info) > 0, "semantic_info가 비어있습니다"
+        
+        # ========================================
+        # target_element 존재 및 구조 검증 (Requirements: 1.3)
+        # ========================================
+        assert 'target_element' in semantic_action.semantic_info, "target_element가 없습니다"
+        target_element = semantic_action.semantic_info['target_element']
+        assert isinstance(target_element, dict), "target_element가 딕셔너리가 아닙니다"
+        
+        # target_element 필수 필드 검증
+        assert 'type' in target_element, "target_element에 type이 없습니다"
+        assert 'text' in target_element, "target_element에 text가 없습니다"
+        assert 'description' in target_element, "target_element에 description이 없습니다"
+        assert 'bounding_box' in target_element, "target_element에 bounding_box가 없습니다"
+        assert 'confidence' in target_element, "target_element에 confidence가 없습니다"
+        
+        # bounding_box 구조 검증
+        bbox = target_element['bounding_box']
+        assert isinstance(bbox, dict), "bounding_box가 딕셔너리가 아닙니다"
+        assert 'x' in bbox, "bounding_box에 x가 없습니다"
+        assert 'y' in bbox, "bounding_box에 y가 없습니다"
+        assert 'width' in bbox, "bounding_box에 width가 없습니다"
+        assert 'height' in bbox, "bounding_box에 height가 없습니다"
+        
+        # confidence 범위 검증
+        confidence = target_element['confidence']
+        assert isinstance(confidence, (int, float)), "confidence가 숫자가 아닙니다"
+        assert 0.0 <= confidence <= 1.0, f"confidence가 0.0~1.0 범위를 벗어났습니다: {confidence}"
+        
+        # ========================================
+        # intent 존재 검증
+        # ========================================
+        assert 'intent' in semantic_action.semantic_info, "intent가 없습니다"
+        
+        # ========================================
+        # context 존재 검증
+        # ========================================
+        assert 'context' in semantic_action.semantic_info, "context가 없습니다"
+        
+    finally:
+        if os.path.exists(temp_config_path):
+            os.remove(temp_config_path)
+
+
+@settings(max_examples=50, deadline=None)
+@given(
+    x=st.integers(min_value=500, max_value=1000),  # 버튼에서 먼 좌표
+    y=st.integers(min_value=500, max_value=1000),
+    button=st.sampled_from(['left', 'right', 'middle'])
+)
+def test_click_action_semantic_info_completeness_no_element(x, y, button):
+    """
+    **Feature: semantic-test-replay, Property 1 확장: 요소가 없는 경우에도 완전성 유지**
+    
+    *For any* 클릭 액션에 대해, UI 요소가 발견되지 않더라도 
+    semantic_info와 target_element 구조는 완전해야 한다.
+    
+    **Validates: Requirements 1.3, 1.4**
+    """
+    temp_config_path = create_temp_config()
+    
+    try:
+        config = ConfigManager(temp_config_path)
+        config.load_config()
+        
+        # Mock UIAnalyzer 생성 (요소를 찾지 못하는 경우)
+        mock_analyzer = Mock()
+        mock_analyzer.analyze_with_retry.return_value = {
+            "buttons": [],
+            "icons": [],
+            "text_fields": [],
+            "source": "vision_llm"
+        }
+        mock_analyzer.find_element_at_position.return_value = None
+        
+        recorder = SemanticActionRecorder(config, ui_analyzer=mock_analyzer)
+        
+        with patch('src.semantic_action_recorder.pyautogui') as mock_pyautogui:
+            from PIL import Image
+            mock_image = Image.new('RGB', (200, 200), color='blue')
+            mock_pyautogui.screenshot.return_value = mock_image
+            
+            semantic_action = recorder.record_click_with_semantic_analysis(
+                x=x,
+                y=y,
+                button=button,
+                perform_click=False,
+                click_delay=0.0
+            )
+        
+        # 물리적 좌표 검증
+        assert semantic_action.x == x
+        assert semantic_action.y == y
+        
+        # semantic_info 완전성 검증
+        assert semantic_action.semantic_info is not None
+        assert 'target_element' in semantic_action.semantic_info
+        
+        target_element = semantic_action.semantic_info['target_element']
+        
+        # 요소가 없어도 기본 구조는 유지되어야 함
+        assert 'type' in target_element
+        assert 'text' in target_element
+        assert 'description' in target_element
+        assert 'bounding_box' in target_element
+        assert 'confidence' in target_element
+        
+        # 요소가 없으면 type은 'unknown'이어야 함
+        assert target_element['type'] == 'unknown', \
+            f"요소가 없을 때 type이 'unknown'이 아닙니다: {target_element['type']}"
+        
+    finally:
+        if os.path.exists(temp_config_path):
+            os.remove(temp_config_path)
 
 
 # ============================================================================
@@ -345,10 +589,10 @@ def test_screen_transition_analysis(hash_before, hash_after):
 
 
 # ============================================================================
-# 추가 테스트: 직렬화/역직렬화 Round Trip
+# Property 2: 직렬화 왕복 동등성 (Round-trip Equivalence)
 # ============================================================================
 
-@settings(max_examples=50, deadline=None)
+@settings(max_examples=100, deadline=None)
 @given(
     action_type=action_type_strategy,
     x=coordinate_strategy,
@@ -360,61 +604,167 @@ def test_screen_transition_analysis(hash_before, hash_after):
 def test_semantic_action_serialization_round_trip(action_type, x, y, description,
                                                    semantic_info, screen_transition):
     """
-    의미론적 액션 직렬화/역직렬화 Round Trip 테스트
+    **Feature: semantic-test-replay, Property 2: 직렬화 왕복 동등성**
     
-    For any 의미론적 액션, 딕셔너리로 변환 후 다시 복원하면
-    원래 데이터와 동일해야 한다.
+    *For any* 의미론적 액션, to_dict()로 직렬화 후 from_dict()로 역직렬화하면
+    원래 객체와 동등해야 한다.
+    
+    **Validates: Requirements 2.4, 2.5, 6.1, 6.2, 6.3, 6.4**
     """
-    temp_config_path = create_temp_config()
+    timestamp = datetime.now().isoformat()
     
-    try:
-        config = ConfigManager(temp_config_path)
-        config.load_config()
-        
-        mock_analyzer = create_mock_ui_analyzer()
-        recorder = SemanticActionRecorder(config, ui_analyzer=mock_analyzer)
-        
-        # SemanticAction 생성 및 기록
-        semantic_action = SemanticAction(
-            timestamp=datetime.now().isoformat(),
-            action_type=action_type,
-            x=x,
-            y=y,
-            description=description,
-            semantic_info=semantic_info,
-            screen_transition=screen_transition
-        )
-        recorder.semantic_actions.append(semantic_action)
-        
-        # 딕셔너리로 변환
-        dict_list = recorder.to_dict_list()
-        
-        # 새 레코더로 복원
-        restored_recorder = SemanticActionRecorder.from_dict_list(dict_list, config)
-        
-        # 복원된 액션 검증
-        assert len(restored_recorder.semantic_actions) == 1, \
-            "복원된 액션 수가 일치하지 않습니다"
-        
-        restored_action = restored_recorder.semantic_actions[0]
-        
-        # 물리적 정보 검증
-        assert restored_action.action_type == action_type, \
-            f"action_type 불일치: {restored_action.action_type} != {action_type}"
-        assert restored_action.x == x, f"x 불일치: {restored_action.x} != {x}"
-        assert restored_action.y == y, f"y 불일치: {restored_action.y} != {y}"
-        assert restored_action.description == description, \
-            f"description 불일치: {restored_action.description} != {description}"
-        
-        # 의미론적 정보 검증
-        assert restored_action.semantic_info == semantic_info, \
-            f"semantic_info 불일치"
-        assert restored_action.screen_transition == screen_transition, \
-            f"screen_transition 불일치"
-        
-    finally:
-        if os.path.exists(temp_config_path):
-            os.remove(temp_config_path)
+    # SemanticAction 생성
+    original = SemanticAction(
+        timestamp=timestamp,
+        action_type=action_type,
+        x=x,
+        y=y,
+        description=description,
+        semantic_info=semantic_info,
+        screen_transition=screen_transition,
+        screenshot_before_path="test/before.png",
+        screenshot_after_path="test/after.png",
+        ui_state_hash_before="abc123",
+        ui_state_hash_after="def456"
+    )
+    
+    # 직렬화
+    serialized = original.to_dict()
+    
+    # 역직렬화
+    restored = SemanticAction.from_dict(serialized)
+    
+    # ========================================
+    # 물리적 정보 동등성 검증
+    # ========================================
+    assert restored.timestamp == original.timestamp, \
+        f"timestamp 불일치: {restored.timestamp} != {original.timestamp}"
+    assert restored.action_type == original.action_type, \
+        f"action_type 불일치: {restored.action_type} != {original.action_type}"
+    assert restored.x == original.x, \
+        f"x 불일치: {restored.x} != {original.x}"
+    assert restored.y == original.y, \
+        f"y 불일치: {restored.y} != {original.y}"
+    assert restored.description == original.description, \
+        f"description 불일치: {restored.description} != {original.description}"
+    
+    # ========================================
+    # 스크린샷 경로 동등성 검증
+    # ========================================
+    assert restored.screenshot_before_path == original.screenshot_before_path, \
+        f"screenshot_before_path 불일치"
+    assert restored.screenshot_after_path == original.screenshot_after_path, \
+        f"screenshot_after_path 불일치"
+    
+    # ========================================
+    # UI 상태 해시 동등성 검증
+    # ========================================
+    assert restored.ui_state_hash_before == original.ui_state_hash_before, \
+        f"ui_state_hash_before 불일치"
+    assert restored.ui_state_hash_after == original.ui_state_hash_after, \
+        f"ui_state_hash_after 불일치"
+    
+    # ========================================
+    # 의미론적 정보 동등성 검증 (중첩 구조)
+    # ========================================
+    assert restored.semantic_info.get("intent") == original.semantic_info.get("intent"), \
+        f"intent 불일치"
+    
+    # target_element 검증
+    orig_target = original.semantic_info.get("target_element", {})
+    rest_target = restored.semantic_info.get("target_element", {})
+    
+    assert rest_target.get("type") == orig_target.get("type"), \
+        f"target_element.type 불일치"
+    assert rest_target.get("text") == orig_target.get("text"), \
+        f"target_element.text 불일치"
+    assert rest_target.get("description") == orig_target.get("description"), \
+        f"target_element.description 불일치"
+    
+    # bounding_box 검증 (표준화된 구조)
+    orig_bbox = orig_target.get("bounding_box", {})
+    rest_bbox = rest_target.get("bounding_box", {})
+    assert rest_bbox.get("x") == orig_bbox.get("x"), "bounding_box.x 불일치"
+    assert rest_bbox.get("y") == orig_bbox.get("y"), "bounding_box.y 불일치"
+    assert rest_bbox.get("width") == orig_bbox.get("width"), "bounding_box.width 불일치"
+    assert rest_bbox.get("height") == orig_bbox.get("height"), "bounding_box.height 불일치"
+    
+    # confidence 검증
+    # float 비교는 근사값으로 (부동소수점 오차 허용)
+    orig_conf = orig_target.get("confidence", 0.0)
+    rest_conf = rest_target.get("confidence", 0.0)
+    assert abs(rest_conf - orig_conf) < 1e-6, \
+        f"confidence 불일치: {rest_conf} != {orig_conf}"
+    
+    # context 검증
+    orig_ctx = original.semantic_info.get("context", {})
+    rest_ctx = restored.semantic_info.get("context", {})
+    assert rest_ctx.get("screen_state") == orig_ctx.get("screen_state"), \
+        f"context.screen_state 불일치"
+    assert rest_ctx.get("expected_result") == orig_ctx.get("expected_result"), \
+        f"context.expected_result 불일치"
+    
+    # ========================================
+    # 화면 전환 정보 동등성 검증
+    # ========================================
+    orig_trans = original.screen_transition
+    rest_trans = restored.screen_transition
+    
+    assert rest_trans.get("before_state") == orig_trans.get("before_state"), \
+        f"screen_transition.before_state 불일치"
+    assert rest_trans.get("after_state") == orig_trans.get("after_state"), \
+        f"screen_transition.after_state 불일치"
+    assert rest_trans.get("transition_type") == orig_trans.get("transition_type"), \
+        f"screen_transition.transition_type 불일치"
+    assert rest_trans.get("hash_difference") == orig_trans.get("hash_difference"), \
+        f"screen_transition.hash_difference 불일치"
+
+
+@settings(max_examples=100, deadline=None)
+@given(
+    action_type=action_type_strategy,
+    x=coordinate_strategy,
+    y=coordinate_strategy,
+    description=description_strategy,
+    semantic_info=semantic_info_strategy,
+    screen_transition=screen_transition_strategy
+)
+def test_double_round_trip_idempotence(action_type, x, y, description,
+                                        semantic_info, screen_transition):
+    """
+    **Feature: semantic-test-replay, Property 2 확장: 이중 왕복 멱등성**
+    
+    *For any* 의미론적 액션, 두 번 연속 직렬화/역직렬화해도 결과가 동일해야 한다.
+    
+    **Validates: Requirements 6.1, 6.2, 6.3**
+    """
+    timestamp = datetime.now().isoformat()
+    
+    original = SemanticAction(
+        timestamp=timestamp,
+        action_type=action_type,
+        x=x,
+        y=y,
+        description=description,
+        semantic_info=semantic_info,
+        screen_transition=screen_transition
+    )
+    
+    # 첫 번째 왕복
+    serialized1 = original.to_dict()
+    restored1 = SemanticAction.from_dict(serialized1)
+    
+    # 두 번째 왕복
+    serialized2 = restored1.to_dict()
+    restored2 = SemanticAction.from_dict(serialized2)
+    
+    # 두 번째 직렬화 결과가 첫 번째와 동일해야 함
+    # (JSON 직렬화 가능한 형태로 비교)
+    import json
+    json1 = json.dumps(serialized1, sort_keys=True, default=str)
+    json2 = json.dumps(serialized2, sort_keys=True, default=str)
+    
+    assert json1 == json2, "이중 왕복 후 직렬화 결과가 다릅니다"
 
 
 # ============================================================================
@@ -492,6 +842,152 @@ def test_find_closest_element():
     finally:
         if os.path.exists(temp_config_path):
             os.remove(temp_config_path)
+
+
+# ============================================================================
+# Property 8: None 필드 직렬화 일관성
+# ============================================================================
+
+# None 가능 필드 전략
+optional_string_strategy = st.one_of(st.none(), st.text(min_size=1, max_size=50))
+optional_int_strategy = st.one_of(st.none(), st.integers(min_value=-100, max_value=100))
+
+
+@settings(max_examples=100, deadline=None)
+@given(
+    action_type=action_type_strategy,
+    x=coordinate_strategy,
+    y=coordinate_strategy,
+    screenshot_path=optional_string_strategy,
+    button=button_strategy,
+    key=key_strategy,
+    scroll_dx=optional_int_strategy,
+    scroll_dy=optional_int_strategy,
+    screenshot_before_path=optional_string_strategy,
+    screenshot_after_path=optional_string_strategy,
+    ui_state_hash_before=optional_string_strategy,
+    ui_state_hash_after=optional_string_strategy
+)
+def test_none_field_serialization_consistency(action_type, x, y, screenshot_path,
+                                               button, key, scroll_dx, scroll_dy,
+                                               screenshot_before_path, screenshot_after_path,
+                                               ui_state_hash_before, ui_state_hash_after):
+    """
+    **Feature: semantic-test-replay, Property 8: None 필드 직렬화 일관성**
+    
+    *For any* SemanticAction with None 필드, 직렬화 후 역직렬화하면
+    None 필드가 일관되게 None으로 유지되어야 한다.
+    
+    **Validates: Requirements 6.5**
+    """
+    timestamp = datetime.now().isoformat()
+    
+    # None 필드를 포함한 SemanticAction 생성
+    original = SemanticAction(
+        timestamp=timestamp,
+        action_type=action_type,
+        x=x,
+        y=y,
+        description="테스트 액션",
+        screenshot_path=screenshot_path,
+        button=button,
+        key=key,
+        scroll_dx=scroll_dx,
+        scroll_dy=scroll_dy,
+        screenshot_before_path=screenshot_before_path,
+        screenshot_after_path=screenshot_after_path,
+        ui_state_hash_before=ui_state_hash_before,
+        ui_state_hash_after=ui_state_hash_after,
+        semantic_info={},
+        screen_transition={}
+    )
+    
+    # 직렬화
+    serialized = original.to_dict()
+    
+    # 역직렬화
+    restored = SemanticAction.from_dict(serialized)
+    
+    # ========================================
+    # None 필드 일관성 검증
+    # ========================================
+    
+    # screenshot_path
+    assert restored.screenshot_path == original.screenshot_path, \
+        f"screenshot_path 불일치: {restored.screenshot_path} != {original.screenshot_path}"
+    
+    # button
+    assert restored.button == original.button, \
+        f"button 불일치: {restored.button} != {original.button}"
+    
+    # key
+    assert restored.key == original.key, \
+        f"key 불일치: {restored.key} != {original.key}"
+    
+    # scroll_dx
+    assert restored.scroll_dx == original.scroll_dx, \
+        f"scroll_dx 불일치: {restored.scroll_dx} != {original.scroll_dx}"
+    
+    # scroll_dy
+    assert restored.scroll_dy == original.scroll_dy, \
+        f"scroll_dy 불일치: {restored.scroll_dy} != {original.scroll_dy}"
+    
+    # screenshot_before_path
+    assert restored.screenshot_before_path == original.screenshot_before_path, \
+        f"screenshot_before_path 불일치: {restored.screenshot_before_path} != {original.screenshot_before_path}"
+    
+    # screenshot_after_path
+    assert restored.screenshot_after_path == original.screenshot_after_path, \
+        f"screenshot_after_path 불일치: {restored.screenshot_after_path} != {original.screenshot_after_path}"
+    
+    # ui_state_hash_before
+    assert restored.ui_state_hash_before == original.ui_state_hash_before, \
+        f"ui_state_hash_before 불일치: {restored.ui_state_hash_before} != {original.ui_state_hash_before}"
+    
+    # ui_state_hash_after
+    assert restored.ui_state_hash_after == original.ui_state_hash_after, \
+        f"ui_state_hash_after 불일치: {restored.ui_state_hash_after} != {original.ui_state_hash_after}"
+
+
+@settings(max_examples=50, deadline=None)
+@given(
+    action_type=action_type_strategy,
+    x=coordinate_strategy,
+    y=coordinate_strategy
+)
+def test_empty_semantic_info_serialization(action_type, x, y):
+    """
+    빈 semantic_info 직렬화 테스트
+    
+    *For any* SemanticAction with 빈 semantic_info, 직렬화 후 역직렬화하면
+    빈 딕셔너리가 유지되어야 한다.
+    
+    **Validates: Requirements 6.5**
+    """
+    timestamp = datetime.now().isoformat()
+    
+    # 빈 semantic_info로 생성
+    original = SemanticAction(
+        timestamp=timestamp,
+        action_type=action_type,
+        x=x,
+        y=y,
+        description="테스트",
+        semantic_info={},
+        screen_transition={}
+    )
+    
+    # 직렬화
+    serialized = original.to_dict()
+    
+    # 역직렬화
+    restored = SemanticAction.from_dict(serialized)
+    
+    # 빈 딕셔너리 유지 확인
+    assert restored.semantic_info == {}, \
+        f"빈 semantic_info가 유지되지 않음: {restored.semantic_info}"
+    assert restored.screen_transition == {}, \
+        f"빈 screen_transition이 유지되지 않음: {restored.screen_transition}"
 
 
 if __name__ == '__main__':

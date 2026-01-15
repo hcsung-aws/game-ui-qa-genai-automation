@@ -1,0 +1,24 @@
+{
+  "aws": {
+    "region": "ap-northeast-2",
+    "model_id": "anthropic.claude-sonnet-4-5-20250929-v1:0",
+    "max_tokens": 2000,
+    "retry_count": 3,
+    "retry_delay": 1.0
+  },
+  "game": {
+    "exe_path": "C:/path/to/game.exe",
+    "window_title": "Game Window",
+    "startup_wait": 5
+  },
+  "automation": {
+    "action_delay": 0.5,
+    "screenshot_on_action": true,
+    "screenshot_dir": "screenshots",
+    "verify_mode": false,
+    "hash_threshold": 5
+  },
+  "test_cases": {
+    "directory": "test_cases"
+  }
+}

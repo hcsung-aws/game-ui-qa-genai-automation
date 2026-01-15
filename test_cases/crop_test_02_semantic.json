@@ -1,0 +1,344 @@
+{
+  "name": "crop_test_02",
+  "version": "2.0",
+  "created_at": "2025-12-31T01:09:21.059957",
+  "semantic_enabled": true,
+  "actions": [
+    {
+      "timestamp": "2025-12-31T01:07:22.155077",
+      "action_type": "click",
+      "x": 488,
+      "y": 375,
+      "description": "클릭 (488, 375)",
+      "screenshot_path": "screenshots/action_0000.png",
+      "button": "left",
+      "key": null,
+      "scroll_dx": null,
+      "scroll_dy": null,
+      "screenshot_before_path": "screenshots/action_0000_before.png",
+      "screenshot_after_path": null,
+      "click_region_crop_path": null,
+      "ui_state_hash_before": null,
+      "ui_state_hash_after": null,
+      "semantic_info": {
+        "intent": "click_button",
+        "target_element": {
+          "type": "button",
+          "text": "우편함",
+          "description": "Mailbox button with notification badge",
+          "bounding_box": {
+            "x": 426,
+            "y": 350,
+            "width": 80,
+            "height": 30
+          },
+          "confidence": 0.9
+        },
+        "context": {
+          "screen_state": "captured",
+          "expected_result": "unknown"
+        }
+      },
+      "screen_transition": {}
+    },
+    {
+      "timestamp": "2025-12-31T01:07:24.322000",
+      "action_type": "wait",
+      "x": 0,
+      "y": 0,
+      "description": "2.3초 대기",
+      "screenshot_path": null,
+      "button": null,
+      "key": null,
+      "scroll_dx": null,
+      "scroll_dy": null,
+      "screenshot_before_path": null,
+      "screenshot_after_path": null,
+      "click_region_crop_path": null,
+      "ui_state_hash_before": null,
+      "ui_state_hash_after": null,
+      "semantic_info": {},
+      "screen_transition": {}
+    },
+    {
+      "timestamp": "2025-12-31T01:07:26.633725",
+      "action_type": "click",
+      "x": 75,
+      "y": 72,
+      "description": "클릭 (75, 72)",
+      "screenshot_path": "screenshots/action_0001.png",
+      "button": "left",
+      "key": null,
+      "scroll_dx": null,
+      "scroll_dy": null,
+      "screenshot_before_path": "screenshots/action_0001_before.png",
+      "screenshot_after_path": null,
+      "click_region_crop_path": "screenshots\\crop_0002.png",
+      "ui_state_hash_before": null,
+      "ui_state_hash_after": null,
+      "semantic_info": {
+        "intent": "unknown_action",
+        "target_element": {
+          "type": "unknown",
+          "text": "",
+          "description": "좌표 (75, 72)의 알 수 없는 요소",
+          "bounding_box": {
+            "x": 75,
+            "y": 72,
+            "width": 0,
+            "height": 0
+          },
+          "confidence": 0.0
+        },
+        "context": {
+          "screen_state": "captured",
+          "expected_result": "unknown"
+        }
+      },
+      "screen_transition": {}
+    },
+    {
+      "timestamp": "2025-12-31T01:07:28.929050",
+      "action_type": "wait",
+      "x": 0,
+      "y": 0,
+      "description": "1.8초 대기",
+      "screenshot_path": null,
+      "button": null,
+      "key": null,
+      "scroll_dx": null,
+      "scroll_dy": null,
+      "screenshot_before_path": null,
+      "screenshot_after_path": null,
+      "click_region_crop_path": null,
+      "ui_state_hash_before": null,
+      "ui_state_hash_after": null,
+      "semantic_info": {},
+      "screen_transition": {}
+    },
+    {
+      "timestamp": "2025-12-31T01:07:30.762497",
+      "action_type": "click",
+      "x": 72,
+      "y": 237,
+      "description": "클릭 (72, 237)",
+      "screenshot_path": "screenshots/action_0002.png",
+      "button": "left",
+      "key": null,
+      "scroll_dx": null,
+      "scroll_dy": null,
+      "screenshot_before_path": "screenshots/action_0002_before.png",
+      "screenshot_after_path": null,
+      "click_region_crop_path": null,
+      "ui_state_hash_before": null,
+      "ui_state_hash_after": null,
+      "semantic_info": {
+        "intent": "click_button",
+        "target_element": {
+          "type": "button",
+          "text": "이벤트",
+          "description": "Event calendar button with calendar icon",
+          "bounding_box": {
+            "x": 50,
+            "y": 205,
+            "width": 60,
+            "height": 60
+          },
+          "confidence": 0.9
+        },
+        "context": {
+          "screen_state": "captured",
+          "expected_result": "unknown"
+        }
+      },
+      "screen_transition": {}
+    },
+    {
+      "timestamp": "2025-12-31T01:07:32.991457",
+      "action_type": "wait",
+      "x": 0,
+      "y": 0,
+      "description": "2.2초 대기",
+      "screenshot_path": null,
+      "button": null,
+      "key": null,
+      "scroll_dx": null,
+      "scroll_dy": null,
+      "screenshot_before_path": null,
+      "screenshot_after_path": null,
+      "click_region_crop_path": null,
+      "ui_state_hash_before": null,
+      "ui_state_hash_after": null,
+      "semantic_info": {},
+      "screen_transition": {}
+    },
+    {
+      "timestamp": "2025-12-31T01:07:35.175808",
+      "action_type": "click",
+      "x": 163,
+      "y": 336,
+      "description": "클릭 (163, 336)",
+      "screenshot_path": "screenshots/action_0003.png",
+      "button": "left",
+      "key": null,
+      "scroll_dx": null,
+      "scroll_dy": null,
+      "screenshot_before_path": "screenshots/action_0003_before.png",
+      "screenshot_after_path": null,
+      "click_region_crop_path": null,
+      "ui_state_hash_before": null,
+      "ui_state_hash_after": null,
+      "semantic_info": {
+        "intent": "click_button",
+        "target_element": {
+          "type": "button",
+          "text": "성장 원정대",
+          "description": "Growth expedition button",
+          "bounding_box": {
+            "x": 30,
+            "y": 296,
+            "width": 200,
+            "height": 70
+          },
+          "confidence": 0.9
+        },
+        "context": {
+          "screen_state": "captured",
+          "expected_result": "unknown"
+        }
+      },
+      "screen_transition": {}
+    },
+    {
+      "timestamp": "2025-12-31T01:07:37.412797",
+      "action_type": "wait",
+      "x": 0,
+      "y": 0,
+      "description": "3.4초 대기",
+      "screenshot_path": null,
+      "button": null,
+      "key": null,
+      "scroll_dx": null,
+      "scroll_dy": null,
+      "screenshot_before_path": null,
+      "screenshot_after_path": null,
+      "click_region_crop_path": null,
+      "ui_state_hash_before": null,
+      "ui_state_hash_after": null,
+      "semantic_info": {},
+      "screen_transition": {}
+    },
+    {
+      "timestamp": "2025-12-31T01:07:40.775533",
+      "action_type": "click",
+      "x": 310,
+      "y": 122,
+      "description": "클릭 (310, 122)",
+      "screenshot_path": "screenshots/action_0004.png",
+      "button": "left",
+      "key": null,
+      "scroll_dx": null,
+      "scroll_dy": null,
+      "screenshot_before_path": "screenshots/action_0004_before.png",
+      "screenshot_after_path": null,
+      "click_region_crop_path": null,
+      "ui_state_hash_before": null,
+      "ui_state_hash_after": null,
+      "semantic_info": {
+        "intent": "click_button",
+        "target_element": {
+          "type": "button",
+          "text": "배틀패스",
+          "description": "Battle pass tab button",
+          "bounding_box": {
+            "x": 265,
+            "y": 120,
+            "width": 189,
+            "height": 34
+          },
+          "confidence": 0.95
+        },
+        "context": {
+          "screen_state": "captured",
+          "expected_result": "unknown"
+        }
+      },
+      "screen_transition": {}
+    },
+    {
+      "timestamp": "2025-12-31T01:07:42.980651",
+      "action_type": "wait",
+      "x": 0,
+      "y": 0,
+      "description": "2.0초 대기",
+      "screenshot_path": null,
+      "button": null,
+      "key": null,
+      "scroll_dx": null,
+      "scroll_dy": null,
+      "screenshot_before_path": null,
+      "screenshot_after_path": null,
+      "click_region_crop_path": null,
+      "ui_state_hash_before": null,
+      "ui_state_hash_after": null,
+      "semantic_info": {},
+      "screen_transition": {}
+    },
+    {
+      "timestamp": "2025-12-31T01:07:45.012100",
+      "action_type": "click",
+      "x": 522,
+      "y": 129,
+      "description": "클릭 (522, 129)",
+      "screenshot_path": "screenshots/action_0005.png",
+      "button": "left",
+      "key": null,
+      "scroll_dx": null,
+      "scroll_dy": null,
+      "screenshot_before_path": "screenshots/action_0005_before.png",
+      "screenshot_after_path": null,
+      "click_region_crop_path": null,
+      "ui_state_hash_before": null,
+      "ui_state_hash_after": null,
+      "semantic_info": {
+        "intent": "click_button",
+        "target_element": {
+          "type": "button",
+          "text": "시즌 이벤트",
+          "description": "Season event tab button",
+          "bounding_box": {
+            "x": 499,
+            "y": 119,
+            "width": 176,
+            "height": 36
+          },
+          "confidence": 0.95
+        },
+        "context": {
+          "screen_state": "captured",
+          "expected_result": "unknown"
+        }
+      },
+      "screen_transition": {}
+    },
+    {
+      "timestamp": "2025-12-31T01:07:47.301959",
+      "action_type": "wait",
+      "x": 0,
+      "y": 0,
+      "description": "2.1초 대기",
+      "screenshot_path": null,
+      "button": null,
+      "key": null,
+      "scroll_dx": null,
+      "scroll_dy": null,
+      "screenshot_before_path": null,
+      "screenshot_after_path": null,
+      "click_region_crop_path": null,
+      "ui_state_hash_before": null,
+      "ui_state_hash_after": null,
+      "semantic_info": {},
+      "screen_transition": {}
+    }
+  ]
+}

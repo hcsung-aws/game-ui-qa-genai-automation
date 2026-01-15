@@ -754,3 +754,404 @@ def test_exponential_backoff_specific_delays(base_delay):
 if __name__ == '__main__':
     import pytest
     pytest.main([__file__, '-v'])
+
+
+# ============================================================================
+# Property 1 (Partial): bounding_box 파싱 검증 및 find_element_at_position
+# ============================================================================
+
+# bounding_box 전략
+bounding_box_strategy = st.fixed_dictionaries({
+    'x': st.integers(min_value=0, max_value=1920),
+    'y': st.integers(min_value=0, max_value=1080),
+    'width': st.integers(min_value=10, max_value=500),
+    'height': st.integers(min_value=10, max_value=300)
+})
+
+# bounding_box를 포함한 버튼 전략
+button_with_bbox_strategy = st.fixed_dictionaries({
+    'text': st.text(min_size=1, max_size=20),
+    'x': st.integers(min_value=0, max_value=1920),
+    'y': st.integers(min_value=0, max_value=1080),
+    'width': st.integers(min_value=10, max_value=500),
+    'height': st.integers(min_value=10, max_value=200),
+    'confidence': st.floats(min_value=0.0, max_value=1.0),
+    'bounding_box': bounding_box_strategy
+})
+
+
+@settings(max_examples=100, deadline=None)
+@given(
+    x=st.integers(min_value=100, max_value=1800),
+    y=st.integers(min_value=100, max_value=900),
+    width=st.integers(min_value=20, max_value=200),
+    height=st.integers(min_value=20, max_value=100)
+)
+def test_ensure_bounding_box_calculates_correctly(x, y, width, height):
+    """
+    **Feature: semantic-test-replay, Property 1: 클릭 액션의 의미론적 정보 완전성**
+    
+    For any UI 요소의 중심 좌표(x, y)와 크기(width, height)가 주어지면,
+    _ensure_bounding_box는 올바른 좌상단 좌표를 계산해야 한다.
+    bounding_box.x = x - width/2, bounding_box.y = y - height/2
+    
+    Validates: Requirements 1.3
+    """
+    with tempfile.TemporaryDirectory() as tmp_path:
+        analyzer = create_analyzer_with_mock(tmp_path)
+        
+        # bounding_box가 없는 요소
+        element = {
+            'text': 'Test Button',
+            'x': x,
+            'y': y,
+            'width': width,
+            'height': height,
+            'confidence': 0.9
+        }
+        
+        # bounding_box 보정
+        result = analyzer._ensure_bounding_box(element)
+        
+        # bounding_box가 추가되었는지 확인
+        assert 'bounding_box' in result, "bounding_box가 추가되어야 합니다"
+        
+        bbox = result['bounding_box']
+        
+        # 좌상단 좌표 계산 검증
+        expected_bbox_x = int(x - width / 2)
+        expected_bbox_y = int(y - height / 2)
+        
+        assert bbox['x'] == expected_bbox_x, \
+            f"bounding_box.x: expected {expected_bbox_x}, got {bbox['x']}"
+        assert bbox['y'] == expected_bbox_y, \
+            f"bounding_box.y: expected {expected_bbox_y}, got {bbox['y']}"
+        assert bbox['width'] == width, \
+            f"bounding_box.width: expected {width}, got {bbox['width']}"
+        assert bbox['height'] == height, \
+            f"bounding_box.height: expected {height}, got {bbox['height']}"
+
+
+@settings(max_examples=100, deadline=None)
+@given(button=button_with_bbox_strategy)
+def test_ensure_bounding_box_preserves_existing(button):
+    """
+    **Feature: semantic-test-replay, Property 1: 클릭 액션의 의미론적 정보 완전성**
+    
+    For any 이미 bounding_box가 있는 UI 요소, _ensure_bounding_box는 
+    기존 bounding_box를 그대로 유지해야 한다.
+    
+    Validates: Requirements 1.3
+    """
+    with tempfile.TemporaryDirectory() as tmp_path:
+        analyzer = create_analyzer_with_mock(tmp_path)
+        
+        original_bbox = button['bounding_box'].copy()
+        
+        # bounding_box 보정 (이미 있으므로 변경되지 않아야 함)
+        result = analyzer._ensure_bounding_box(button)
+        
+        # 기존 bounding_box가 유지되는지 확인
+        assert result['bounding_box'] == original_bbox, \
+            f"기존 bounding_box가 변경되었습니다: {original_bbox} -> {result['bounding_box']}"
+
+
+@settings(max_examples=100, deadline=None)
+@given(
+    bbox_x=st.integers(min_value=0, max_value=1000),
+    bbox_y=st.integers(min_value=0, max_value=800),
+    width=st.integers(min_value=50, max_value=200),
+    height=st.integers(min_value=30, max_value=100),
+    click_offset_x=st.integers(min_value=0, max_value=49),
+    click_offset_y=st.integers(min_value=0, max_value=29)
+)
+def test_find_element_at_position_inside_bbox(bbox_x, bbox_y, width, height, click_offset_x, click_offset_y):
+    """
+    **Feature: semantic-test-replay, Property 1: 클릭 액션의 의미론적 정보 완전성**
+    
+    For any bounding_box 내부의 좌표, find_element_at_position은 
+    해당 요소를 반환해야 한다.
+    
+    Validates: Requirements 1.2, 3.2
+    """
+    # offset이 width/height를 초과하지 않도록 조정
+    click_offset_x = min(click_offset_x, width - 1)
+    click_offset_y = min(click_offset_y, height - 1)
+    
+    with tempfile.TemporaryDirectory() as tmp_path:
+        analyzer = create_analyzer_with_mock(tmp_path)
+        
+        # 중심 좌표 계산
+        center_x = bbox_x + width // 2
+        center_y = bbox_y + height // 2
+        
+        ui_data = {
+            'buttons': [{
+                'text': 'Test Button',
+                'x': center_x,
+                'y': center_y,
+                'width': width,
+                'height': height,
+                'bounding_box': {
+                    'x': bbox_x,
+                    'y': bbox_y,
+                    'width': width,
+                    'height': height
+                },
+                'confidence': 0.9
+            }],
+            'icons': [],
+            'text_fields': []
+        }
+        
+        # bounding_box 내부 좌표
+        click_x = bbox_x + click_offset_x
+        click_y = bbox_y + click_offset_y
+        
+        result = analyzer.find_element_at_position(ui_data, click_x, click_y)
+        
+        assert result is not None, \
+            f"bounding_box 내부 좌표 ({click_x}, {click_y})에서 요소를 찾지 못했습니다"
+        assert result['text'] == 'Test Button', \
+            f"잘못된 요소가 반환되었습니다: {result}"
+
+
+@settings(max_examples=100, deadline=None)
+@given(
+    center_x=st.integers(min_value=200, max_value=1700),
+    center_y=st.integers(min_value=200, max_value=900),
+    tolerance=st.integers(min_value=10, max_value=100),
+    distance_factor=st.floats(min_value=0.1, max_value=0.9)
+)
+def test_find_element_at_position_within_tolerance(center_x, center_y, tolerance, distance_factor):
+    """
+    **Feature: semantic-test-replay, Property 1: 클릭 액션의 의미론적 정보 완전성**
+    
+    For any tolerance 범위 내의 좌표, find_element_at_position은 
+    가장 가까운 요소를 반환해야 한다.
+    
+    Validates: Requirements 1.2, 3.2
+    """
+    with tempfile.TemporaryDirectory() as tmp_path:
+        analyzer = create_analyzer_with_mock(tmp_path)
+        
+        ui_data = {
+            'buttons': [{
+                'text': 'Test Button',
+                'x': center_x,
+                'y': center_y,
+                'width': 80,
+                'height': 40,
+                'bounding_box': {
+                    'x': center_x - 40,
+                    'y': center_y - 20,
+                    'width': 80,
+                    'height': 40
+                },
+                'confidence': 0.9
+            }],
+            'icons': [],
+            'text_fields': []
+        }
+        
+        # tolerance 범위 내의 좌표 (bounding_box 외부)
+        # bounding_box 외부이지만 tolerance 내에 있는 좌표 계산
+        actual_distance = int(tolerance * distance_factor)
+        click_x = center_x + 50 + actual_distance  # bounding_box 오른쪽 외부
+        click_y = center_y
+        
+        result = analyzer.find_element_at_position(ui_data, click_x, click_y, tolerance=tolerance + 60)
+        
+        # tolerance 범위 내이므로 요소를 찾아야 함
+        assert result is not None, \
+            f"tolerance 범위 내 좌표 ({click_x}, {click_y})에서 요소를 찾지 못했습니다"
+
+
+@settings(max_examples=100, deadline=None)
+@given(
+    center_x=st.integers(min_value=200, max_value=1700),
+    center_y=st.integers(min_value=200, max_value=900),
+    tolerance=st.integers(min_value=10, max_value=50)
+)
+def test_find_element_at_position_outside_tolerance(center_x, center_y, tolerance):
+    """
+    **Feature: semantic-test-replay, Property 1: 클릭 액션의 의미론적 정보 완전성**
+    
+    For any tolerance 범위 외부의 좌표, find_element_at_position은 
+    None을 반환해야 한다.
+    
+    Validates: Requirements 1.2, 3.2
+    """
+    with tempfile.TemporaryDirectory() as tmp_path:
+        analyzer = create_analyzer_with_mock(tmp_path)
+        
+        ui_data = {
+            'buttons': [{
+                'text': 'Test Button',
+                'x': center_x,
+                'y': center_y,
+                'width': 80,
+                'height': 40,
+                'bounding_box': {
+                    'x': center_x - 40,
+                    'y': center_y - 20,
+                    'width': 80,
+                    'height': 40
+                },
+                'confidence': 0.9
+            }],
+            'icons': [],
+            'text_fields': []
+        }
+        
+        # tolerance 범위 외부의 좌표 (확실히 멀리)
+        click_x = center_x + tolerance + 200
+        click_y = center_y + tolerance + 200
+        
+        result = analyzer.find_element_at_position(ui_data, click_x, click_y, tolerance=tolerance)
+        
+        assert result is None, \
+            f"tolerance 범위 외부 좌표 ({click_x}, {click_y})에서 요소가 반환되었습니다: {result}"
+
+
+@settings(max_examples=50, deadline=None)
+@given(
+    buttons=st.lists(button_with_bbox_strategy, min_size=2, max_size=5)
+)
+def test_find_element_at_position_returns_closest(buttons):
+    """
+    **Feature: semantic-test-replay, Property 1: 클릭 액션의 의미론적 정보 완전성**
+    
+    For any 여러 UI 요소가 있을 때, find_element_at_position은 
+    주어진 좌표에서 가장 가까운 요소를 반환해야 한다.
+    (단, bounding_box 내부 포함 여부가 우선)
+    
+    Validates: Requirements 1.2, 3.2
+    """
+    with tempfile.TemporaryDirectory() as tmp_path:
+        analyzer = create_analyzer_with_mock(tmp_path)
+        
+        # 각 버튼에 고유한 텍스트 부여
+        for i, button in enumerate(buttons):
+            button['text'] = f'Button_{i}'
+        
+        ui_data = {
+            'buttons': buttons,
+            'icons': [],
+            'text_fields': []
+        }
+        
+        # 첫 번째 버튼의 중심 좌표 사용
+        target_button = buttons[0]
+        click_x = target_button['x']
+        click_y = target_button['y']
+        
+        result = analyzer.find_element_at_position(ui_data, click_x, click_y, tolerance=1000)
+        
+        if result is not None:
+            import math
+            
+            # bounding_box 내부 포함 여부 확인 함수
+            def is_inside_bbox(btn, x, y):
+                bbox = btn.get('bounding_box', {})
+                bx, by = bbox.get('x', 0), bbox.get('y', 0)
+                bw, bh = bbox.get('width', 0), bbox.get('height', 0)
+                return bx <= x <= bx + bw and by <= y <= by + bh
+            
+            # 결과가 bounding_box 내부에 있는지 확인
+            result_inside = is_inside_bbox(result, click_x, click_y)
+            
+            # bounding_box 내부에 있는 다른 요소들 확인
+            other_inside_elements = [b for b in buttons if is_inside_bbox(b, click_x, click_y)]
+            
+            if result_inside and other_inside_elements:
+                # bounding_box 내부 요소 중 가장 가까운 것이어야 함
+                result_distance = math.sqrt(
+                    (result['x'] - click_x) ** 2 + (result['y'] - click_y) ** 2
+                )
+                for button in other_inside_elements:
+                    button_distance = math.sqrt(
+                        (button['x'] - click_x) ** 2 + (button['y'] - click_y) ** 2
+                    )
+                    assert result_distance <= button_distance + 0.001, \
+                        f"bounding_box 내부에 더 가까운 요소가 있습니다"
+            elif not result_inside:
+                # bounding_box 외부 요소 중 가장 가까운 것이어야 함
+                result_distance = math.sqrt(
+                    (result['x'] - click_x) ** 2 + (result['y'] - click_y) ** 2
+                )
+                for button in buttons:
+                    if not is_inside_bbox(button, click_x, click_y):
+                        button_distance = math.sqrt(
+                            (button['x'] - click_x) ** 2 + (button['y'] - click_y) ** 2
+                        )
+                        assert result_distance <= button_distance + 0.001, \
+                            f"더 가까운 요소가 있습니다"
+
+
+@settings(max_examples=100, deadline=None)
+@given(
+    element_type=st.sampled_from(['button', 'icon', 'text_field']),
+    x=st.integers(min_value=100, max_value=1800),
+    y=st.integers(min_value=100, max_value=900)
+)
+def test_find_element_at_position_adds_element_type(element_type, x, y):
+    """
+    **Feature: semantic-test-replay, Property 1: 클릭 액션의 의미론적 정보 완전성**
+    
+    For any 찾은 UI 요소, find_element_at_position은 
+    element_type 필드를 추가하여 반환해야 한다.
+    
+    Validates: Requirements 1.2, 3.2
+    """
+    with tempfile.TemporaryDirectory() as tmp_path:
+        analyzer = create_analyzer_with_mock(tmp_path)
+        
+        element = {
+            'x': x,
+            'y': y,
+            'width': 80,
+            'height': 40,
+            'bounding_box': {
+                'x': x - 40,
+                'y': y - 20,
+                'width': 80,
+                'height': 40
+            },
+            'confidence': 0.9
+        }
+        
+        if element_type == 'button':
+            element['text'] = 'Test Button'
+            ui_data = {'buttons': [element], 'icons': [], 'text_fields': []}
+        elif element_type == 'icon':
+            element['type'] = 'settings'
+            ui_data = {'buttons': [], 'icons': [element], 'text_fields': []}
+        else:  # text_field
+            element['content'] = 'Test Text'
+            ui_data = {'buttons': [], 'icons': [], 'text_fields': [element]}
+        
+        result = analyzer.find_element_at_position(ui_data, x, y)
+        
+        assert result is not None, "요소를 찾지 못했습니다"
+        assert 'element_type' in result, "element_type 필드가 없습니다"
+        assert result['element_type'] == element_type, \
+            f"element_type이 잘못되었습니다: expected {element_type}, got {result['element_type']}"
+
+
+def test_find_element_at_position_empty_ui_data():
+    """
+    **Feature: semantic-test-replay, Property 1: 클릭 액션의 의미론적 정보 완전성**
+    
+    빈 UI 데이터에서 find_element_at_position은 None을 반환해야 한다.
+    
+    Validates: Requirements 1.2, 3.2
+    """
+    with tempfile.TemporaryDirectory() as tmp_path:
+        analyzer = create_analyzer_with_mock(tmp_path)
+        
+        ui_data = {'buttons': [], 'icons': [], 'text_fields': []}
+        
+        result = analyzer.find_element_at_position(ui_data, 500, 500)
+        
+        assert result is None, "빈 UI 데이터에서 None이 반환되어야 합니다"

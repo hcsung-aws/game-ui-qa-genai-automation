@@ -17,6 +17,7 @@ import imagehash
 from src.config_manager import ConfigManager
 from src.ui_analyzer import UIAnalyzer
 from src.semantic_action_recorder import SemanticAction
+from src.window_capture import WindowCapture
 
 
 logger = logging.getLogger(__name__)
@@ -27,10 +28,11 @@ class ReplayResult:
     """액션 재실행 결과"""
     action_id: str
     success: bool
-    method: str  # 'direct', 'semantic', 'failed'
+    method: str  # 'direct', 'semantic', 'coordinate', 'failed'
     original_coords: Tuple[int, int]
     actual_coords: Optional[Tuple[int, int]] = None
     coordinate_change: Optional[Tuple[int, int]] = None
+    match_confidence: float = 0.0  # 매칭 신뢰도 점수 (Requirements: 4.2)
     screen_transition_verified: bool = False
     expected_transition: str = ""
     actual_transition: str = ""
@@ -57,6 +59,11 @@ class SemanticActionReplayer:
         self.ui_analyzer = ui_analyzer or UIAnalyzer(config)
         self.results: List[ReplayResult] = []
         self._action_counter = 0
+        
+        # 윈도우 캡처 (좌표 변환용)
+        window_title = config.get('game.window_title', '')
+        self._window_capture = WindowCapture(window_title)
+        self._window_capture.find_window()
     
     def replay_action(self, action: SemanticAction) -> ReplayResult:
         """의미론적 액션 재실행
@@ -171,6 +178,120 @@ class SemanticActionReplayer:
             result = self._verify_screen_transition(action, result, hash_before)
         
         return result
+
+    def replay_click_with_semantic_matching(self, action: SemanticAction) -> ReplayResult:
+        """의미론적 매칭을 우선 적용하여 클릭 재생
+        
+        Requirements: 3.1, 3.3, 3.4, 3.5
+        
+        1. 현재 화면 캡처 및 UI 분석
+        2. _find_matching_element()로 매칭 시도
+        3. 신뢰도 0.7 이상이면 매칭된 좌표 사용
+        4. 0.7 미만이면 원래 좌표로 폴백
+        5. 좌표 차이 로그 기록
+        
+        Args:
+            action: 재실행할 의미론적 액션
+            
+        Returns:
+            ReplayResult 객체
+        """
+        self._action_counter += 1
+        start_time = time.time()
+        
+        x, y = action.x, action.y
+        
+        result = ReplayResult(
+            action_id=f"action_{self._action_counter:04d}",
+            success=False,
+            method='failed',
+            original_coords=(x, y),
+            match_confidence=0.0
+        )
+        
+        try:
+            # 1. 현재 화면 캡처 및 UI 분석 (Requirements: 3.1)
+            logger.info(f"의미론적 매칭 클릭 시도: 원래 좌표 ({x}, {y})")
+            screenshot_before = self._capture_screenshot()
+            hash_before = self._calculate_hash(screenshot_before) if screenshot_before else None
+            
+            if screenshot_before is None:
+                # 스크린샷 실패 시 원래 좌표로 폴백
+                logger.warning("스크린샷 캡처 실패, 원래 좌표로 폴백")
+                self._execute_click(x, y, action.button or 'left')
+                result.method = 'coordinate'
+                result.actual_coords = (x, y)
+                result.success = True
+                result.match_confidence = 0.0
+            else:
+                # UI 분석
+                semantic_info = action.semantic_info
+                target_element = semantic_info.get('target_element', {}) if semantic_info else {}
+                
+                if not target_element:
+                    # 의미론적 정보 없음 - 원래 좌표로 폴백
+                    logger.info("의미론적 정보 없음, 원래 좌표로 폴백")
+                    self._execute_click(x, y, action.button or 'left')
+                    result.method = 'coordinate'
+                    result.actual_coords = (x, y)
+                    result.success = True
+                    result.match_confidence = 0.0
+                else:
+                    # Vision LLM으로 현재 화면 분석
+                    try:
+                        ui_data = self.ui_analyzer.analyze_with_retry(screenshot_before)
+                        
+                        # 2. _find_matching_element()로 매칭 시도
+                        matched_coords, confidence = self._find_matching_element(ui_data, target_element)
+                        result.match_confidence = confidence
+                        
+                        # 3. 신뢰도 0.7 이상이면 매칭된 좌표 사용 (Requirements: 3.3)
+                        if matched_coords and confidence >= 0.7:
+                            new_x, new_y = matched_coords
+                            self._execute_click(new_x, new_y, action.button or 'left')
+                            result.method = 'semantic'
+                            result.actual_coords = (new_x, new_y)
+                            result.coordinate_change = (new_x - x, new_y - y)
+                            result.success = True
+                            
+                            # 5. 좌표 차이 로그 기록 (Requirements: 3.5)
+                            logger.info(
+                                f"의미론적 매칭 성공: 신뢰도 {confidence:.2f}, "
+                                f"좌표 ({new_x}, {new_y}), "
+                                f"변경 ({new_x - x}, {new_y - y})"
+                            )
+                        else:
+                            # 4. 0.7 미만이면 원래 좌표로 폴백 (Requirements: 3.4)
+                            logger.info(
+                                f"매칭 신뢰도 부족 ({confidence:.2f} < 0.7), 원래 좌표로 폴백"
+                            )
+                            self._execute_click(x, y, action.button or 'left')
+                            result.method = 'coordinate'
+                            result.actual_coords = (x, y)
+                            result.success = True
+                            
+                    except Exception as e:
+                        # UI 분석 실패 시 원래 좌표로 폴백
+                        logger.warning(f"UI 분석 실패: {e}, 원래 좌표로 폴백")
+                        self._execute_click(x, y, action.button or 'left')
+                        result.method = 'coordinate'
+                        result.actual_coords = (x, y)
+                        result.success = True
+                        result.match_confidence = 0.0
+            
+            # 화면 전환 검증
+            if result.success:
+                time.sleep(0.3)
+                result = self._verify_screen_transition(action, result, hash_before)
+                
+        except Exception as e:
+            result.error_message = str(e)
+            logger.error(f"의미론적 매칭 클릭 실패: {e}")
+        
+        result.execution_time = time.time() - start_time
+        self.results.append(result)
+        
+        return result
     
     def _replay_key_action(self, action: SemanticAction, 
                            result: ReplayResult) -> ReplayResult:
@@ -211,11 +332,13 @@ class SemanticActionReplayer:
         """
         try:
             scroll_amount = action.scroll_dy or 0
-            pyautogui.scroll(scroll_amount, x=action.x, y=action.y)
+            # 윈도우 상대 좌표를 스크린 절대 좌표로 변환
+            screen_x, screen_y = self._convert_to_screen_coords(action.x, action.y)
+            pyautogui.scroll(scroll_amount, x=screen_x, y=screen_y)
             result.success = True
             result.method = 'direct'
             result.actual_coords = (action.x, action.y)
-            logger.info(f"스크롤 성공: ({action.x}, {action.y}), 양: {scroll_amount}")
+            logger.info(f"스크롤 성공: 윈도우({action.x}, {action.y}) -> 스크린({screen_x}, {screen_y}), 양: {scroll_amount}")
         except Exception as e:
             result.error_message = f"스크롤 실패: {e}"
             logger.error(result.error_message)
@@ -275,16 +398,45 @@ class SemanticActionReplayer:
         """
         return str(imagehash.average_hash(image))
     
-    def _execute_click(self, x: int, y: int, button: str = 'left'):
-        """클릭 실행
+    def _get_window_offset(self) -> Tuple[int, int]:
+        """게임 윈도우의 화면상 오프셋 가져오기
+        
+        Returns:
+            (offset_x, offset_y) 윈도우 좌상단의 스크린 좌표
+        """
+        if self._window_capture and self._window_capture._hwnd:
+            rect = self._window_capture.get_window_rect()
+            if rect:
+                return (rect[0], rect[1])  # left, top
+        return (0, 0)
+    
+    def _convert_to_screen_coords(self, window_x: int, window_y: int) -> Tuple[int, int]:
+        """윈도우 기준 상대 좌표를 스크린 절대 좌표로 변환
         
         Args:
-            x: X 좌표
-            y: Y 좌표
+            window_x: 윈도우 기준 X 좌표
+            window_y: 윈도우 기준 Y 좌표
+            
+        Returns:
+            (screen_x, screen_y) 스크린 절대 좌표
+        """
+        offset_x, offset_y = self._get_window_offset()
+        return (window_x + offset_x, window_y + offset_y)
+    
+    def _execute_click(self, x: int, y: int, button: str = 'left'):
+        """클릭 실행 (윈도우 상대 좌표를 스크린 좌표로 변환하여 클릭)
+        
+        Args:
+            x: X 좌표 (윈도우 기준 상대 좌표)
+            y: Y 좌표 (윈도우 기준 상대 좌표)
             button: 마우스 버튼 ('left', 'right', 'middle')
         """
+        # 윈도우 상대 좌표를 스크린 절대 좌표로 변환
+        screen_x, screen_y = self._convert_to_screen_coords(x, y)
+        
         action_delay = self.config.get('automation.action_delay', 0.5)
-        pyautogui.click(x, y, button=button)
+        pyautogui.click(screen_x, screen_y, button=button)
+        logger.debug(f"클릭 실행: 윈도우({x}, {y}) -> 스크린({screen_x}, {screen_y})")
         time.sleep(action_delay)
     
     def _verify_element_at_position(self, image: Optional[Image.Image], 
@@ -355,6 +507,64 @@ class SemanticActionReplayer:
             logger.warning(f"요소 확인 중 오류: {e}")
             return True  # 오류 시 원래 좌표로 시도
     
+    def _find_matching_element(self, 
+                               current_ui_data: Dict[str, Any], 
+                               target_element: Dict[str, Any]) -> Tuple[Optional[Tuple[int, int]], float]:
+        """현재 UI 데이터에서 target_element와 매칭되는 요소 탐색
+        
+        Requirements: 3.2
+        
+        텍스트 유사도 + 타입 매칭 점수를 계산하여 가장 높은 점수의 요소와 신뢰도를 반환한다.
+        
+        Args:
+            current_ui_data: 현재 화면의 UI 분석 데이터
+            target_element: 찾고자 하는 대상 요소 정보
+            
+        Returns:
+            (매칭된 좌표, 신뢰도) 또는 (None, 0.0)
+        """
+        if not current_ui_data or not target_element:
+            return (None, 0.0)
+        
+        expected_type = target_element.get('type', '')
+        expected_text = target_element.get('text', '')
+        expected_description = target_element.get('description', '')
+        
+        best_match = None
+        best_score = 0.0
+        
+        # 버튼에서 매칭
+        if expected_type in ['button', 'unknown', '']:
+            for button in current_ui_data.get('buttons', []):
+                score = self._calculate_match_score(
+                    button, expected_type, expected_text, expected_description
+                )
+                if score > best_score:
+                    best_score = score
+                    best_match = (button.get('x', 0), button.get('y', 0))
+        
+        # 아이콘에서 매칭
+        if expected_type in ['icon', 'unknown', '']:
+            for icon in current_ui_data.get('icons', []):
+                score = self._calculate_match_score(
+                    icon, expected_type, expected_text, expected_description
+                )
+                if score > best_score:
+                    best_score = score
+                    best_match = (icon.get('x', 0), icon.get('y', 0))
+        
+        # 텍스트 필드에서 매칭
+        if expected_type in ['text_field', 'input_field', 'unknown', '']:
+            for text_field in current_ui_data.get('text_fields', []):
+                score = self._calculate_match_score(
+                    text_field, expected_type, expected_text, expected_description
+                )
+                if score > best_score:
+                    best_score = score
+                    best_match = (text_field.get('x', 0), text_field.get('y', 0))
+        
+        return (best_match, best_score)
+
     def _semantic_matching(self, action: SemanticAction, 
                           current_screen: Optional[Image.Image]) -> Optional[Tuple[int, int]]:
         """의미론적 매칭으로 요소 찾기
@@ -379,46 +589,13 @@ class SemanticActionReplayer:
             return None
         
         target_element = semantic_info.get('target_element', {})
-        expected_type = target_element.get('type', '')
-        expected_text = target_element.get('text', '').lower()
-        expected_description = target_element.get('description', '').lower()
         
         try:
             # Vision LLM으로 현재 화면 분석
             ui_data = self.ui_analyzer.analyze_with_retry(current_screen)
             
-            best_match = None
-            best_score = 0
-            
-            # 버튼에서 매칭
-            if expected_type in ['button', 'unknown', '']:
-                for button in ui_data.get('buttons', []):
-                    score = self._calculate_match_score(
-                        button, expected_type, expected_text, expected_description
-                    )
-                    if score > best_score:
-                        best_score = score
-                        best_match = (button.get('x', 0), button.get('y', 0))
-            
-            # 아이콘에서 매칭
-            if expected_type in ['icon', 'unknown', '']:
-                for icon in ui_data.get('icons', []):
-                    score = self._calculate_match_score(
-                        icon, expected_type, expected_text, expected_description
-                    )
-                    if score > best_score:
-                        best_score = score
-                        best_match = (icon.get('x', 0), icon.get('y', 0))
-            
-            # 텍스트 필드에서 매칭
-            if expected_type in ['text_field', 'input_field', 'unknown', '']:
-                for text_field in ui_data.get('text_fields', []):
-                    score = self._calculate_match_score(
-                        text_field, expected_type, expected_text, expected_description
-                    )
-                    if score > best_score:
-                        best_score = score
-                        best_match = (text_field.get('x', 0), text_field.get('y', 0))
+            # _find_matching_element 활용
+            best_match, best_score = self._find_matching_element(ui_data, target_element)
             
             # 최소 점수 임계값
             if best_score >= 0.3:
@@ -430,6 +607,85 @@ class SemanticActionReplayer:
         except Exception as e:
             logger.error(f"의미론적 매칭 중 오류: {e}")
             return None
+
+    def _calculate_text_similarity(self, text1: str, text2: str) -> float:
+        """두 텍스트 문자열의 유사도 계산
+        
+        Requirements: 3.2
+        
+        점수 우선순위:
+        1. 완전 일치 → 1.0
+        2. 문자 집합 유사도 (Jaccard) → 0.0 ~ 0.85
+        3. 부분 문자열 포함 → 0.3 ~ 0.5 (폴백용, 낮은 신뢰도)
+        
+        Args:
+            text1: 첫 번째 텍스트
+            text2: 두 번째 텍스트
+            
+        Returns:
+            유사도 점수 (0.0 ~ 1.0)
+        """
+        # None 또는 빈 문자열 처리
+        if not text1 or not text2:
+            return 0.0
+        
+        # 원본 텍스트가 동일하면 1.0 반환 (정규화 전 체크)
+        if text1 == text2:
+            return 1.0
+        
+        # 1. 정규화 (대소문자 무시, 공백 정규화)
+        import re
+        normalized1 = re.sub(r'\s+', ' ', str(text1).lower().strip())
+        normalized2 = re.sub(r'\s+', ' ', str(text2).lower().strip())
+        
+        # 빈 문자열 처리 (정규화 후 둘 다 빈 문자열이면 동등하므로 1.0)
+        if not normalized1 and not normalized2:
+            return 1.0
+        
+        # 한쪽만 빈 문자열이면 0.0
+        if not normalized1 or not normalized2:
+            return 0.0
+        
+        # 2. 완전 일치 → 1.0
+        if normalized1 == normalized2:
+            return 1.0
+        
+        # 3. Jaccard 유사도 계산 (문자 집합 기반)
+        set1 = set(normalized1)
+        set2 = set(normalized2)
+        
+        intersection = len(set1 & set2)
+        union = len(set1 | set2)
+        
+        if union == 0:
+            return 0.0
+        
+        jaccard = intersection / union
+        
+        # 순서를 고려한 추가 점수 (연속 일치 문자)
+        common_prefix_len = 0
+        for c1, c2 in zip(normalized1, normalized2):
+            if c1 == c2:
+                common_prefix_len += 1
+            else:
+                break
+        
+        prefix_bonus = common_prefix_len / max(len(normalized1), len(normalized2)) * 0.15
+        
+        # Jaccard 점수: 0.0 ~ 0.85 범위
+        jaccard_score = min(jaccard * 0.85 + prefix_bonus, 0.85)
+        
+        # 4. 부분 문자열 매칭 (Jaccard보다 낮은 점수로 폴백)
+        shorter = normalized1 if len(normalized1) <= len(normalized2) else normalized2
+        longer = normalized2 if len(normalized1) <= len(normalized2) else normalized1
+        
+        if shorter in longer:
+            ratio = len(shorter) / len(longer)
+            substring_score = 0.3 + (ratio * 0.2)  # 0.3 ~ 0.5 범위
+            # Jaccard가 더 높으면 Jaccard 사용, 아니면 부분 문자열 점수
+            return max(jaccard_score, substring_score)
+        
+        return jaccard_score
 
     def _calculate_match_score(self, element: Dict[str, Any],
                                expected_type: str,
@@ -448,19 +704,20 @@ class SemanticActionReplayer:
         """
         score = 0.0
         
-        # 텍스트 매칭 (가장 중요)
-        element_text = element.get('text', element.get('content', element.get('type', ''))).lower()
+        # 텍스트 매칭 (가장 중요) - _calculate_text_similarity 활용
+        element_text = element.get('text', element.get('content', element.get('type', '')))
         
         if expected_text:
-            if expected_text == element_text:
-                score += 0.5
-            elif expected_text in element_text or element_text in expected_text:
-                score += 0.3
+            text_similarity = self._calculate_text_similarity(expected_text, element_text)
+            score += text_similarity * 0.5  # 텍스트 유사도에 0.5 가중치
         
         # 설명 매칭
-        if expected_description:
-            if expected_text in expected_description:
-                if expected_text in element_text:
+        if expected_description and expected_text:
+            desc_similarity = self._calculate_text_similarity(expected_text, expected_description)
+            if desc_similarity > 0.5:
+                element_text_lower = element_text.lower() if element_text else ''
+                expected_text_lower = expected_text.lower() if expected_text else ''
+                if expected_text_lower in element_text_lower:
                     score += 0.2
         
         # 타입 매칭
@@ -581,6 +838,8 @@ class SemanticActionReplayer:
     def get_statistics(self) -> Dict[str, Any]:
         """재실행 통계 계산
         
+        Requirements: 4.1, 4.2, 4.3, 4.4
+        
         Returns:
             통계 딕셔너리
         """
@@ -592,9 +851,14 @@ class SemanticActionReplayer:
                 "success_rate": 0.0,
                 "direct_match_count": 0,
                 "semantic_match_count": 0,
+                "coordinate_match_count": 0,
+                "failed_count": 0,
                 "direct_match_rate": 0.0,
                 "semantic_match_rate": 0.0,
+                "coordinate_match_rate": 0.0,
                 "avg_coordinate_change": 0.0,
+                "max_coordinate_change": 0.0,
+                "avg_match_confidence": 0.0,
                 "transition_verified_count": 0,
                 "transition_mismatch_count": 0
             }
@@ -603,14 +867,21 @@ class SemanticActionReplayer:
         success_count = sum(1 for r in self.results if r.success)
         direct_count = sum(1 for r in self.results if r.method == 'direct')
         semantic_count = sum(1 for r in self.results if r.method == 'semantic')
+        coordinate_count = sum(1 for r in self.results if r.method == 'coordinate')
+        failed_count = sum(1 for r in self.results if r.method == 'failed')
         
-        # 좌표 변경 거리 계산
+        # 좌표 변경 거리 계산 (Requirements: 4.3)
         coord_changes = [
             (r.coordinate_change[0]**2 + r.coordinate_change[1]**2)**0.5
             for r in self.results
             if r.coordinate_change is not None
         ]
         avg_coord_change = sum(coord_changes) / len(coord_changes) if coord_changes else 0.0
+        max_coord_change = max(coord_changes) if coord_changes else 0.0
+        
+        # 매칭 신뢰도 통계 (Requirements: 4.2)
+        confidences = [r.match_confidence for r in self.results if r.match_confidence > 0]
+        avg_confidence = sum(confidences) / len(confidences) if confidences else 0.0
         
         # 화면 전환 검증 통계
         transition_verified = sum(1 for r in self.results if r.screen_transition_verified)
@@ -626,9 +897,14 @@ class SemanticActionReplayer:
             "success_rate": success_count / total if total > 0 else 0.0,
             "direct_match_count": direct_count,
             "semantic_match_count": semantic_count,
+            "coordinate_match_count": coordinate_count,
+            "failed_count": failed_count,
             "direct_match_rate": direct_count / total if total > 0 else 0.0,
             "semantic_match_rate": semantic_count / total if total > 0 else 0.0,
+            "coordinate_match_rate": coordinate_count / total if total > 0 else 0.0,
             "avg_coordinate_change": avg_coord_change,
+            "max_coordinate_change": max_coord_change,
+            "avg_match_confidence": avg_confidence,
             "transition_verified_count": transition_verified,
             "transition_mismatch_count": transition_mismatch
         }

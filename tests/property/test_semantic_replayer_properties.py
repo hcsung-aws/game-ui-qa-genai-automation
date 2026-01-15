@@ -1046,3 +1046,724 @@ def test_button_position_scaled_layout(original_x, original_y, scale_factor):
 if __name__ == '__main__':
     import pytest
     pytest.main([__file__, '-v'])
+
+
+# ============================================================================
+# Property 4: 텍스트 유사도 대칭성
+# ============================================================================
+
+@settings(max_examples=100, deadline=None)
+@given(
+    text1=st.text(min_size=0, max_size=50),
+    text2=st.text(min_size=0, max_size=50)
+)
+def test_text_similarity_symmetry(text1, text2):
+    """
+    **Feature: semantic-test-replay, Property 4: 텍스트 유사도 대칭성**
+    
+    *임의의* 두 텍스트 문자열 A, B에 대해, similarity(A, B) == similarity(B, A)이어야 한다.
+    
+    **Validates: Requirements 3.2**
+    """
+    temp_config_path = create_temp_config()
+    
+    try:
+        config = ConfigManager(temp_config_path)
+        config.load_config()
+        
+        mock_analyzer = create_mock_ui_analyzer()
+        replayer = SemanticActionReplayer(config, ui_analyzer=mock_analyzer)
+        
+        # 양방향 유사도 계산
+        similarity_ab = replayer._calculate_text_similarity(text1, text2)
+        similarity_ba = replayer._calculate_text_similarity(text2, text1)
+        
+        # ========================================
+        # Property 4 검증: 대칭성
+        # ========================================
+        
+        # 유사도 값이 0.0 ~ 1.0 범위 내에 있어야 함
+        assert 0.0 <= similarity_ab <= 1.0, \
+            f"similarity(A, B) 범위 초과: {similarity_ab}"
+        assert 0.0 <= similarity_ba <= 1.0, \
+            f"similarity(B, A) 범위 초과: {similarity_ba}"
+        
+        # 대칭성: similarity(A, B) == similarity(B, A)
+        assert abs(similarity_ab - similarity_ba) < 1e-9, \
+            f"대칭성 위반: similarity('{text1}', '{text2}') = {similarity_ab}, " \
+            f"similarity('{text2}', '{text1}') = {similarity_ba}"
+        
+    finally:
+        if os.path.exists(temp_config_path):
+            os.remove(temp_config_path)
+
+
+@settings(max_examples=50, deadline=None)
+@given(
+    text=st.text(min_size=1, max_size=30)
+)
+def test_text_similarity_identity(text):
+    """
+    동일한 텍스트의 유사도는 1.0이어야 한다.
+    
+    **Validates: Requirements 3.2**
+    """
+    temp_config_path = create_temp_config()
+    
+    try:
+        config = ConfigManager(temp_config_path)
+        config.load_config()
+        
+        mock_analyzer = create_mock_ui_analyzer()
+        replayer = SemanticActionReplayer(config, ui_analyzer=mock_analyzer)
+        
+        # 동일 텍스트 유사도
+        similarity = replayer._calculate_text_similarity(text, text)
+        
+        # 동일 텍스트는 유사도 1.0
+        assert similarity == 1.0, \
+            f"동일 텍스트 유사도가 1.0이 아님: similarity('{text}', '{text}') = {similarity}"
+        
+    finally:
+        if os.path.exists(temp_config_path):
+            os.remove(temp_config_path)
+
+
+@settings(max_examples=50, deadline=None)
+@given(
+    text1=st.text(min_size=0, max_size=30),
+    text2=st.text(min_size=0, max_size=30)
+)
+def test_text_similarity_range(text1, text2):
+    """
+    텍스트 유사도는 항상 0.0 ~ 1.0 범위 내에 있어야 한다.
+    
+    **Validates: Requirements 3.2**
+    """
+    temp_config_path = create_temp_config()
+    
+    try:
+        config = ConfigManager(temp_config_path)
+        config.load_config()
+        
+        mock_analyzer = create_mock_ui_analyzer()
+        replayer = SemanticActionReplayer(config, ui_analyzer=mock_analyzer)
+        
+        similarity = replayer._calculate_text_similarity(text1, text2)
+        
+        # 범위 검증
+        assert 0.0 <= similarity <= 1.0, \
+            f"유사도 범위 초과: {similarity}"
+        
+    finally:
+        if os.path.exists(temp_config_path):
+            os.remove(temp_config_path)
+
+
+
+# ============================================================================
+# Property 3: 신뢰도 기반 매칭 결정
+# ============================================================================
+
+@settings(max_examples=100, deadline=None)
+@given(
+    original_x=st.integers(min_value=100, max_value=800),
+    original_y=st.integers(min_value=100, max_value=600),
+    new_x=st.integers(min_value=100, max_value=800),
+    new_y=st.integers(min_value=100, max_value=600),
+    confidence=st.floats(min_value=0.0, max_value=1.0),
+    button_text=st.text(alphabet=st.characters(whitelist_categories=('L', 'N')), min_size=2, max_size=15)
+)
+def test_confidence_based_matching_decision(original_x, original_y, new_x, new_y, confidence, button_text):
+    """
+    **Feature: semantic-test-replay, Property 3: 신뢰도 기반 매칭 결정**
+    
+    *임의의* 재생 액션에 대해, 매칭 신뢰도가 0.7 이상이면 매칭된 좌표를 사용하고,
+    0.7 미만이면 원래 좌표를 사용해야 한다.
+    
+    **Validates: Requirements 3.3, 3.4**
+    """
+    assume(len(button_text.strip()) > 0)
+    # 원래 좌표와 새 좌표가 다른 경우만 테스트
+    assume(abs(new_x - original_x) > 10 or abs(new_y - original_y) > 10)
+    
+    temp_config_path = create_temp_config()
+    
+    try:
+        config = ConfigManager(temp_config_path)
+        config.load_config()
+        
+        # Mock UIAnalyzer - 신뢰도에 따라 다른 결과 반환
+        mock_analyzer = Mock()
+        mock_analyzer.analyze_with_retry.return_value = {
+            "buttons": [
+                {
+                    "text": button_text,
+                    "x": new_x,
+                    "y": new_y,
+                    "width": 100,
+                    "height": 40,
+                    "confidence": confidence,
+                    "type": "button"
+                }
+            ],
+            "icons": [],
+            "text_fields": []
+        }
+        
+        replayer = SemanticActionReplayer(config, ui_analyzer=mock_analyzer)
+        
+        # 의미론적 정보가 있는 액션 생성
+        semantic_info = {
+            "intent": "click_button",
+            "target_element": {
+                "type": "button",
+                "text": button_text,
+                "description": f"버튼: {button_text}",
+                "visual_features": {}
+            },
+            "context": {
+                "screen_state": "main_menu",
+                "expected_result": "navigation"
+            }
+        }
+        
+        action = create_semantic_action(
+            x=original_x,
+            y=original_y,
+            button='left',
+            semantic_info=semantic_info,
+            screen_transition={"transition_type": "unknown"}
+        )
+        
+        with patch('src.semantic_action_replayer.pyautogui') as mock_pyautogui:
+            from PIL import Image
+            mock_image = Image.new('RGB', (1920, 1080), color='gray')
+            mock_pyautogui.screenshot.return_value = mock_image
+            mock_pyautogui.click = Mock()
+            
+            result = replayer.replay_click_with_semantic_matching(action)
+        
+        # ========================================
+        # Property 3 검증: 신뢰도 기반 매칭 결정
+        # ========================================
+        
+        assert isinstance(result, ReplayResult), "결과가 ReplayResult 타입이 아닙니다"
+        assert result.success, f"액션 실패: {result.error_message}"
+        
+        # match_confidence 필드가 있어야 함
+        assert hasattr(result, 'match_confidence'), "match_confidence 필드가 없습니다"
+        
+        # 신뢰도 0.7 이상이면 semantic 매칭, 미만이면 coordinate 폴백
+        # 실제 매칭 점수는 _calculate_match_score에서 계산되므로
+        # 결과의 method를 확인
+        if result.match_confidence >= 0.7:
+            # 신뢰도가 충분하면 semantic 매칭 사용 (Requirements: 3.3)
+            assert result.method == 'semantic', \
+                f"신뢰도 {result.match_confidence:.2f} >= 0.7인데 method가 '{result.method}'입니다"
+            assert result.actual_coords == (new_x, new_y), \
+                f"매칭된 좌표 사용해야 함: 예상 ({new_x}, {new_y}), 실제 {result.actual_coords}"
+        else:
+            # 신뢰도가 부족하면 원래 좌표로 폴백 (Requirements: 3.4)
+            assert result.method == 'coordinate', \
+                f"신뢰도 {result.match_confidence:.2f} < 0.7인데 method가 '{result.method}'입니다"
+            assert result.actual_coords == (original_x, original_y), \
+                f"원래 좌표 사용해야 함: 예상 ({original_x}, {original_y}), 실제 {result.actual_coords}"
+        
+    finally:
+        if os.path.exists(temp_config_path):
+            os.remove(temp_config_path)
+
+
+@settings(max_examples=50, deadline=None)
+@given(
+    original_x=st.integers(min_value=100, max_value=800),
+    original_y=st.integers(min_value=100, max_value=600)
+)
+def test_fallback_to_coordinate_when_no_semantic_info(original_x, original_y):
+    """
+    의미론적 정보가 없으면 원래 좌표로 폴백해야 한다.
+    
+    **Validates: Requirements 3.4**
+    """
+    temp_config_path = create_temp_config()
+    
+    try:
+        config = ConfigManager(temp_config_path)
+        config.load_config()
+        
+        mock_analyzer = create_mock_ui_analyzer()
+        replayer = SemanticActionReplayer(config, ui_analyzer=mock_analyzer)
+        
+        # 의미론적 정보가 없는 액션
+        action = create_semantic_action(
+            x=original_x,
+            y=original_y,
+            button='left',
+            semantic_info={},  # 빈 semantic_info
+            screen_transition={"transition_type": "unknown"}
+        )
+        
+        with patch('src.semantic_action_replayer.pyautogui') as mock_pyautogui:
+            from PIL import Image
+            mock_image = Image.new('RGB', (1920, 1080), color='white')
+            mock_pyautogui.screenshot.return_value = mock_image
+            mock_pyautogui.click = Mock()
+            
+            result = replayer.replay_click_with_semantic_matching(action)
+        
+        # 의미론적 정보 없으면 coordinate 폴백
+        assert result.success, f"액션 실패: {result.error_message}"
+        assert result.method == 'coordinate', \
+            f"의미론적 정보 없으면 coordinate여야 하는데 '{result.method}'입니다"
+        assert result.actual_coords == (original_x, original_y), \
+            f"원래 좌표 사용해야 함: 예상 ({original_x}, {original_y}), 실제 {result.actual_coords}"
+        
+    finally:
+        if os.path.exists(temp_config_path):
+            os.remove(temp_config_path)
+
+
+@settings(max_examples=50, deadline=None)
+@given(
+    original_x=st.integers(min_value=100, max_value=800),
+    original_y=st.integers(min_value=100, max_value=600),
+    new_x=st.integers(min_value=100, max_value=800),
+    new_y=st.integers(min_value=100, max_value=600),
+    button_text=st.text(alphabet=st.characters(whitelist_categories=('L', 'N')), min_size=2, max_size=15)
+)
+def test_coordinate_change_logged_on_semantic_match(original_x, original_y, new_x, new_y, button_text):
+    """
+    의미론적 매칭 시 좌표 차이가 기록되어야 한다.
+    
+    **Validates: Requirements 3.5**
+    """
+    assume(len(button_text.strip()) > 0)
+    # 원래 좌표와 새 좌표가 다른 경우만 테스트
+    assume(abs(new_x - original_x) > 10 or abs(new_y - original_y) > 10)
+    
+    temp_config_path = create_temp_config()
+    
+    try:
+        config = ConfigManager(temp_config_path)
+        config.load_config()
+        
+        # 높은 신뢰도로 매칭되도록 설정
+        mock_analyzer = Mock()
+        mock_analyzer.analyze_with_retry.return_value = {
+            "buttons": [
+                {
+                    "text": button_text,
+                    "x": new_x,
+                    "y": new_y,
+                    "width": 100,
+                    "height": 40,
+                    "confidence": 0.95,  # 높은 신뢰도
+                    "type": "button"
+                }
+            ],
+            "icons": [],
+            "text_fields": []
+        }
+        
+        replayer = SemanticActionReplayer(config, ui_analyzer=mock_analyzer)
+        
+        semantic_info = {
+            "intent": "click_button",
+            "target_element": {
+                "type": "button",
+                "text": button_text,
+                "description": f"버튼: {button_text}",
+                "visual_features": {}
+            },
+            "context": {"screen_state": "main", "expected_result": "action"}
+        }
+        
+        action = create_semantic_action(
+            x=original_x,
+            y=original_y,
+            button='left',
+            semantic_info=semantic_info,
+            screen_transition={"transition_type": "unknown"}
+        )
+        
+        with patch('src.semantic_action_replayer.pyautogui') as mock_pyautogui:
+            from PIL import Image
+            mock_image = Image.new('RGB', (1920, 1080), color='blue')
+            mock_pyautogui.screenshot.return_value = mock_image
+            mock_pyautogui.click = Mock()
+            
+            result = replayer.replay_click_with_semantic_matching(action)
+        
+        # 의미론적 매칭 성공 시 좌표 차이 기록 확인
+        if result.method == 'semantic':
+            assert result.coordinate_change is not None, \
+                "의미론적 매칭 시 coordinate_change가 None입니다"
+            
+            expected_change = (new_x - original_x, new_y - original_y)
+            assert result.coordinate_change == expected_change, \
+                f"좌표 변경 불일치: 예상 {expected_change}, 실제 {result.coordinate_change}"
+        
+    finally:
+        if os.path.exists(temp_config_path):
+            os.remove(temp_config_path)
+
+
+# ============================================================================
+# Property 7: 재생 통계 일관성
+# ============================================================================
+
+@settings(max_examples=100, deadline=None)
+@given(
+    num_semantic=st.integers(min_value=0, max_value=20),
+    num_coordinate=st.integers(min_value=0, max_value=20),
+    num_direct=st.integers(min_value=0, max_value=20),
+    num_failed=st.integers(min_value=0, max_value=10)
+)
+def test_replay_statistics_consistency(num_semantic, num_coordinate, num_direct, num_failed):
+    """
+    **Feature: semantic-test-replay, Property 7: 재생 통계 일관성**
+    
+    *임의의* 재생 세션에 대해, semantic_match_count + coordinate_match_count + failed_count == total_actions이어야 한다.
+    
+    **Validates: Requirements 4.1, 4.4**
+    """
+    temp_config_path = create_temp_config()
+    
+    try:
+        config = ConfigManager(temp_config_path)
+        config.load_config()
+        
+        # ReplayVerifier 생성
+        from src.replay_verifier import ReplayVerifier, MatchingStatistics
+        verifier = ReplayVerifier(config)
+        
+        # 다양한 method를 가진 ReplayResult 리스트 생성
+        replay_results = []
+        
+        # semantic 매칭 결과
+        for i in range(num_semantic):
+            result = ReplayResult(
+                action_id=f"semantic_{i:04d}",
+                success=True,
+                method='semantic',
+                original_coords=(100 + i * 10, 100 + i * 10),
+                actual_coords=(150 + i * 10, 150 + i * 10),
+                coordinate_change=(50, 50),
+                match_confidence=0.85
+            )
+            replay_results.append(result)
+        
+        # coordinate 매칭 결과
+        for i in range(num_coordinate):
+            result = ReplayResult(
+                action_id=f"coordinate_{i:04d}",
+                success=True,
+                method='coordinate',
+                original_coords=(200 + i * 10, 200 + i * 10),
+                actual_coords=(200 + i * 10, 200 + i * 10),
+                match_confidence=0.3
+            )
+            replay_results.append(result)
+        
+        # direct 매칭 결과 (coordinate로 분류됨)
+        for i in range(num_direct):
+            result = ReplayResult(
+                action_id=f"direct_{i:04d}",
+                success=True,
+                method='direct',
+                original_coords=(300 + i * 10, 300 + i * 10),
+                actual_coords=(300 + i * 10, 300 + i * 10),
+                match_confidence=0.0
+            )
+            replay_results.append(result)
+        
+        # failed 결과
+        for i in range(num_failed):
+            result = ReplayResult(
+                action_id=f"failed_{i:04d}",
+                success=False,
+                method='failed',
+                original_coords=(400 + i * 10, 400 + i * 10),
+                error_message="테스트 실패"
+            )
+            replay_results.append(result)
+        
+        # 통계 계산
+        stats = verifier.calculate_matching_statistics(replay_results)
+        
+        # ========================================
+        # Property 7 검증: 재생 통계 일관성
+        # ========================================
+        
+        total_actions = len(replay_results)
+        
+        # 1. total_actions가 정확해야 함
+        assert stats.total_actions == total_actions, \
+            f"total_actions 불일치: {stats.total_actions} != {total_actions}"
+        
+        # 2. semantic_match_count + coordinate_match_count + failed_count == total_actions
+        # Note: direct는 coordinate_match_count에 포함됨
+        sum_counts = stats.semantic_match_count + stats.coordinate_match_count + stats.failed_count
+        
+        assert sum_counts == total_actions, \
+            f"통계 일관성 위반: semantic({stats.semantic_match_count}) + " \
+            f"coordinate({stats.coordinate_match_count}) + failed({stats.failed_count}) = {sum_counts} != {total_actions}"
+        
+        # 3. 개별 카운트 검증
+        assert stats.semantic_match_count == num_semantic, \
+            f"semantic_match_count 불일치: {stats.semantic_match_count} != {num_semantic}"
+        
+        # coordinate_match_count는 coordinate + direct를 포함
+        expected_coordinate_count = num_coordinate + num_direct
+        assert stats.coordinate_match_count == expected_coordinate_count, \
+            f"coordinate_match_count 불일치: {stats.coordinate_match_count} != {expected_coordinate_count}"
+        
+        assert stats.failed_count == num_failed, \
+            f"failed_count 불일치: {stats.failed_count} != {num_failed}"
+        
+    finally:
+        if os.path.exists(temp_config_path):
+            os.remove(temp_config_path)
+
+
+@settings(max_examples=50, deadline=None)
+@given(
+    num_actions=st.integers(min_value=1, max_value=30),
+    coord_changes=st.lists(
+        st.tuples(
+            st.integers(min_value=-100, max_value=100),
+            st.integers(min_value=-100, max_value=100)
+        ),
+        min_size=0,
+        max_size=30
+    )
+)
+def test_coordinate_change_statistics(num_actions, coord_changes):
+    """
+    좌표 변위 통계가 올바르게 계산되어야 한다.
+    
+    **Validates: Requirements 4.3**
+    """
+    temp_config_path = create_temp_config()
+    
+    try:
+        config = ConfigManager(temp_config_path)
+        config.load_config()
+        
+        from src.replay_verifier import ReplayVerifier
+        verifier = ReplayVerifier(config)
+        
+        # ReplayResult 리스트 생성
+        replay_results = []
+        actual_distances = []
+        
+        for i in range(num_actions):
+            if i < len(coord_changes):
+                dx, dy = coord_changes[i]
+                coord_change = (dx, dy)
+                distance = (dx ** 2 + dy ** 2) ** 0.5
+                actual_distances.append(distance)
+            else:
+                coord_change = None
+            
+            result = ReplayResult(
+                action_id=f"action_{i:04d}",
+                success=True,
+                method='semantic' if coord_change else 'coordinate',
+                original_coords=(100, 100),
+                actual_coords=(100 + (coord_change[0] if coord_change else 0), 
+                              100 + (coord_change[1] if coord_change else 0)),
+                coordinate_change=coord_change,
+                match_confidence=0.8 if coord_change else 0.3
+            )
+            replay_results.append(result)
+        
+        # 통계 계산
+        stats = verifier.calculate_matching_statistics(replay_results)
+        
+        # ========================================
+        # 좌표 변위 통계 검증
+        # ========================================
+        
+        if actual_distances:
+            expected_avg = sum(actual_distances) / len(actual_distances)
+            expected_max = max(actual_distances)
+            
+            # 평균 좌표 변위 검증 (부동소수점 오차 허용)
+            assert abs(stats.avg_coordinate_change - expected_avg) < 0.01, \
+                f"avg_coordinate_change 불일치: {stats.avg_coordinate_change} != {expected_avg}"
+            
+            # 최대 좌표 변위 검증
+            assert abs(stats.max_coordinate_change - expected_max) < 0.01, \
+                f"max_coordinate_change 불일치: {stats.max_coordinate_change} != {expected_max}"
+        else:
+            # 좌표 변경이 없으면 0이어야 함
+            assert stats.avg_coordinate_change == 0.0, \
+                f"좌표 변경 없는데 avg_coordinate_change가 0이 아님: {stats.avg_coordinate_change}"
+            assert stats.max_coordinate_change == 0.0, \
+                f"좌표 변경 없는데 max_coordinate_change가 0이 아님: {stats.max_coordinate_change}"
+        
+    finally:
+        if os.path.exists(temp_config_path):
+            os.remove(temp_config_path)
+
+
+@settings(max_examples=50, deadline=None)
+@given(
+    confidences=st.lists(
+        st.floats(min_value=0.0, max_value=1.0, allow_nan=False, allow_infinity=False),
+        min_size=0,
+        max_size=20
+    )
+)
+def test_confidence_score_statistics(confidences):
+    """
+    신뢰도 점수 통계가 올바르게 계산되어야 한다.
+    
+    **Validates: Requirements 4.2**
+    """
+    temp_config_path = create_temp_config()
+    
+    try:
+        config = ConfigManager(temp_config_path)
+        config.load_config()
+        
+        from src.replay_verifier import ReplayVerifier
+        verifier = ReplayVerifier(config)
+        
+        # ReplayResult 리스트 생성
+        replay_results = []
+        
+        for i, conf in enumerate(confidences):
+            result = ReplayResult(
+                action_id=f"action_{i:04d}",
+                success=True,
+                method='semantic' if conf >= 0.7 else 'coordinate',
+                original_coords=(100, 100),
+                actual_coords=(100, 100),
+                match_confidence=conf
+            )
+            replay_results.append(result)
+        
+        # 통계 계산
+        stats = verifier.calculate_matching_statistics(replay_results)
+        
+        # ========================================
+        # 신뢰도 점수 통계 검증
+        # ========================================
+        
+        # 0보다 큰 신뢰도만 통계에 포함
+        positive_confidences = [c for c in confidences if c > 0]
+        
+        if positive_confidences:
+            expected_avg = sum(positive_confidences) / len(positive_confidences)
+            expected_min = min(positive_confidences)
+            expected_max = max(positive_confidences)
+            
+            # 평균 신뢰도 검증 (부동소수점 오차 허용)
+            assert abs(stats.avg_match_confidence - expected_avg) < 0.01, \
+                f"avg_match_confidence 불일치: {stats.avg_match_confidence} != {expected_avg}"
+            
+            # 최소 신뢰도 검증
+            assert abs(stats.min_match_confidence - expected_min) < 0.01, \
+                f"min_match_confidence 불일치: {stats.min_match_confidence} != {expected_min}"
+            
+            # 최대 신뢰도 검증
+            assert abs(stats.max_match_confidence - expected_max) < 0.01, \
+                f"max_match_confidence 불일치: {stats.max_match_confidence} != {expected_max}"
+        else:
+            # 양수 신뢰도가 없으면 0이어야 함
+            assert stats.avg_match_confidence == 0.0, \
+                f"양수 신뢰도 없는데 avg_match_confidence가 0이 아님: {stats.avg_match_confidence}"
+        
+    finally:
+        if os.path.exists(temp_config_path):
+            os.remove(temp_config_path)
+
+
+def test_empty_replay_results_statistics():
+    """
+    빈 재생 결과에 대한 통계 테스트
+    
+    **Validates: Requirements 4.1, 4.4**
+    """
+    temp_config_path = create_temp_config()
+    
+    try:
+        config = ConfigManager(temp_config_path)
+        config.load_config()
+        
+        from src.replay_verifier import ReplayVerifier
+        verifier = ReplayVerifier(config)
+        
+        # 빈 결과로 통계 계산
+        stats = verifier.calculate_matching_statistics([])
+        
+        # 모든 값이 0이어야 함
+        assert stats.total_actions == 0
+        assert stats.semantic_match_count == 0
+        assert stats.coordinate_match_count == 0
+        assert stats.failed_count == 0
+        assert stats.avg_coordinate_change == 0.0
+        assert stats.max_coordinate_change == 0.0
+        assert stats.avg_match_confidence == 0.0
+        
+        # 일관성 검증: 0 + 0 + 0 == 0
+        sum_counts = stats.semantic_match_count + stats.coordinate_match_count + stats.failed_count
+        assert sum_counts == stats.total_actions, \
+            f"빈 결과에서 통계 일관성 위반: {sum_counts} != {stats.total_actions}"
+        
+    finally:
+        if os.path.exists(temp_config_path):
+            os.remove(temp_config_path)
+
+
+def test_get_statistics_matching_breakdown():
+    """
+    get_statistics()가 매칭 방법 분류를 올바르게 반환하는지 테스트
+    
+    **Validates: Requirements 4.4**
+    """
+    temp_config_path = create_temp_config()
+    
+    try:
+        config = ConfigManager(temp_config_path)
+        config.load_config()
+        
+        from src.replay_verifier import ReplayVerifier
+        verifier = ReplayVerifier(config)
+        
+        # 다양한 method를 가진 결과 생성
+        replay_results = [
+            ReplayResult(action_id="1", success=True, method='semantic', 
+                        original_coords=(100, 100), match_confidence=0.9),
+            ReplayResult(action_id="2", success=True, method='semantic', 
+                        original_coords=(100, 100), match_confidence=0.85),
+            ReplayResult(action_id="3", success=True, method='coordinate', 
+                        original_coords=(100, 100), match_confidence=0.4),
+            ReplayResult(action_id="4", success=True, method='direct', 
+                        original_coords=(100, 100), match_confidence=0.0),
+            ReplayResult(action_id="5", success=False, method='failed', 
+                        original_coords=(100, 100)),
+        ]
+        
+        # get_statistics 호출
+        stats = verifier.get_statistics(replay_results)
+        
+        # 매칭 방법 분류 검증
+        assert 'matching_breakdown' in stats, "matching_breakdown 필드가 없습니다"
+        
+        breakdown = stats['matching_breakdown']
+        assert breakdown['semantic'] == 2, f"semantic 카운트 불일치: {breakdown['semantic']}"
+        assert breakdown['coordinate'] == 2, f"coordinate 카운트 불일치: {breakdown['coordinate']}"  # coordinate + direct
+        assert breakdown['failed'] == 1, f"failed 카운트 불일치: {breakdown['failed']}"
+        
+        # 일관성 검증
+        total = breakdown['semantic'] + breakdown['coordinate'] + breakdown['failed']
+        assert total == stats['total_actions'], \
+            f"matching_breakdown 합계 불일치: {total} != {stats['total_actions']}"
+        
+    finally:
+        if os.path.exists(temp_config_path):
+            os.remove(temp_config_path)

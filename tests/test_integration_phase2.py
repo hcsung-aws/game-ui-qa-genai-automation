@@ -607,7 +607,14 @@ class TestPhase2SemanticActionRecording:
             assert restored.x == original['x']
             assert restored.y == original['y']
             assert restored.description == original['description']
-            assert restored.semantic_info == original['semantic_info']
+            # semantic_info의 핵심 필드만 비교 (from_dict에서 표준화된 구조로 변환됨)
+            if original.get('semantic_info'):
+                assert restored.semantic_info.get('intent') == original['semantic_info'].get('intent')
+                orig_target = original['semantic_info'].get('target_element', {})
+                rest_target = restored.semantic_info.get('target_element', {})
+                assert rest_target.get('type') == orig_target.get('type')
+                assert rest_target.get('text') == orig_target.get('text')
+                assert rest_target.get('description') == orig_target.get('description')
 
     def test_full_semantic_recording_workflow(self, semantic_recorder_env):
         """전체 의미론적 기록 워크플로우 테스트 (Requirements 11.1-11.6)"""
