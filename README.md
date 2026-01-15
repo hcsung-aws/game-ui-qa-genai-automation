@@ -20,6 +20,7 @@ AWS Bedrock Claude를 활용한 Vision 기반 게임 UI 분석 및 자동화 테
 - **🔄 의미론적 매칭**: UI 레이아웃이 변경되어도 동일한 의미의 요소를 찾아 클릭 (의미론적 테스트)
 - **📊 정확도 추적**: 테스트 실행 결과 추적 및 통계 분석
 - **📝 테스트 케이스 자동 생성**: 기록된 액션을 재사용 가능한 테스트 케이스로 저장
+- **🔧 레거시 테스트 보강**: 기존 테스트 케이스에 의미론적 정보 추가 가능
 
 ### 두 가지 테스트 모드
 
@@ -56,8 +57,7 @@ https://github.com/hcsung-aws/game-ui-qa-genai-automation/raw/main/docs/demo/bas
 
 **재현**
 
-https://github.com/hcsung-aws/game-ui-qa-genai-automation/raw/main/docs/demo/basic-replay.mp4
-
+https://github.com/hcsung-aws/game-ui-qa-genai-automation/raw/main/docs/demo/basic-
 ### 의미론적 테스트 (Vision LLM 기반)
 
 **녹화**
@@ -135,19 +135,24 @@ cp config.example.json config.json
 
 ```
 game-qa-automation/
-├── src/                      # 소스 코드
-│   ├── config_manager.py     # 설정 관리
-│   ├── input_monitor.py      # 입력 모니터링
-│   ├── vision_llm_analyzer.py # Vision LLM 분석
-│   ├── action_replayer.py    # 액션 재실행
+├── src/                           # 소스 코드
+│   ├── config_manager.py          # 설정 관리
+│   ├── input_monitor.py           # 입력 모니터링
+│   ├── ui_analyzer.py             # Vision LLM UI 분석
+│   ├── semantic_action_recorder.py # 의미론적 액션 녹화
+│   ├── semantic_action_replayer.py # 의미론적 액션 재현
+│   ├── script_generator.py        # 테스트 스크립트 생성
+│   ├── test_case_enricher.py      # 레거시 테스트 케이스 보강
+│   ├── cli_interface.py           # CLI 인터페이스
+│   ├── qa_automation_controller.py # 메인 컨트롤러
 │   └── ...
-├── tests/                    # 테스트
-├── test_cases/               # 저장된 테스트 케이스
-├── screenshots/              # 캡처된 스크린샷
-├── reports/                  # 테스트 리포트
-├── config.json               # 설정 파일
-├── requirements.txt          # Python 의존성
-└── main.py                   # 메인 진입점
+├── tests/                         # 테스트
+├── test_cases/                    # 저장된 테스트 케이스
+├── screenshots/                   # 캡처된 스크린샷
+├── reports/                       # 테스트 리포트
+├── config.json                    # 설정 파일
+├── requirements.txt               # Python 의존성
+└── main.py                        # 메인 진입점
 ```
 
 ## 💻 사용법
@@ -162,27 +167,29 @@ python main.py
 
 | 명령어 | 설명 |
 |--------|------|
-| `record` | 새로운 테스트 케이스 기록 시작 |
+| `start` | 게임 실행 |
+| `record` | 입력 기록 시작 (5초 대기 후 시작) |
 | `stop` | 기록 중지 |
-| `replay <name>` | 저장된 테스트 케이스 재실행 |
-| `list` | 저장된 테스트 케이스 목록 |
-| `exit` | 프로그램 종료 |
+| `save <name>` | 기록된 액션을 테스트 케이스로 저장 |
+| `replay` | 로드된 테스트 케이스 재실행 |
+| `enrich <name>` | 기존 테스트 케이스에 의미론적 정보 추가 |
+| `stats [name]` | 테스트 케이스 실행 이력 및 통계 표시 |
+| `help` | 도움말 표시 |
+| `quit` / `exit` | 프로그램 종료 |
 
 ### 테스트 케이스 기록 예시
 
-1. `record` 명령으로 기록 시작
-2. 게임에서 원하는 동작 수행 (클릭, 키 입력 등)
-3. `stop` 명령으로 기록 종료
-4. 테스트 케이스 이름 입력하여 저장
+1. `start` 명령으로 게임 실행
+2. `record` 명령으로 기록 시작 (5초 대기 후 시작)
+3. 게임에서 원하는 동작 수행 (클릭, 키 입력 등)
+4. `stop` 명령으로 기록 종료
+5. `save my_test` 명령으로 테스트 케이스 저장
 
 ### 테스트 케이스 재실행
 
 ```bash
-# CLI에서
-replay my_test_case
-
-# 또는 직접 실행
-python -m src.action_replayer test_cases/my_test_case.json
+# CLI에서 (테스트 케이스 로드 후)
+replay
 ```
 
 ## 🧠 의미론적 테스트 (Semantic Test)
@@ -257,10 +264,15 @@ pytest tests/ -v --cov=src --cov-report=html
 | 옵션 | 설명 | 기본값 |
 |------|------|--------|
 | `aws.region` | AWS 리전 | `ap-northeast-2` |
-| `aws.model_id` | Bedrock 모델 ID | Claude Sonnet |
+| `aws.model_id` | Bedrock 모델 ID | `global.anthropic.claude-sonnet-4-5-20250929-v1:0` |
+| `aws.max_tokens` | 최대 토큰 수 | `2000` |
+| `aws.retry_count` | 재시도 횟수 | `3` |
+| `aws.retry_delay` | 재시도 대기 시간 (초) | `1.0` |
 | `automation.action_delay` | 액션 간 딜레이 (초) | `0.5` |
 | `automation.capture_delay` | 화면 캡처 대기 시간 (초) | `2.0` |
 | `automation.hash_threshold` | 이미지 해시 유사도 임계값 | `10` |
+| `automation.screenshot_on_action` | 액션 시 스크린샷 저장 | `true` |
+| `automation.verify_mode` | 검증 모드 활성화 | `false` |
 
 ## 📄 라이선스
 
@@ -393,11 +405,15 @@ python main.py
 
 | Command | Description |
 |---------|-------------|
-| `record` | Start recording a new test case |
+| `start` | Start the game |
+| `record` | Start recording inputs (starts after 5 second delay) |
 | `stop` | Stop recording |
-| `replay <name>` | Replay a saved test case |
-| `list` | List saved test cases |
-| `exit` | Exit the program |
+| `save <name>` | Save recorded actions as a test case |
+| `replay` | Replay the loaded test case |
+| `enrich <name>` | Add semantic information to existing test case |
+| `stats [name]` | Show test case execution history and statistics |
+| `help` | Display help |
+| `quit` / `exit` | Exit the program |
 
 ## 🧠 Semantic Testing
 
