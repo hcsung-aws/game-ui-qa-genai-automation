@@ -18,6 +18,7 @@ AWS Bedrock Claude를 활용한 Vision 기반 게임 UI 분석 및 자동화 테
 - **🎯 실시간 입력 모니터링**: pynput을 사용하여 마우스/키보드 입력을 자동 캡처
 - **🤖 Vision LLM 기반 UI 분석**: AWS Bedrock Claude를 통한 게임 화면 분석 (의미론적 테스트)
 - **🔄 의미론적 매칭**: UI 레이아웃이 변경되어도 동일한 의미의 요소를 찾아 클릭 (의미론적 테스트)
+- **✅ 좌표 기반 Replay 검증**: 스크린샷 비교 + Vision LLM을 통한 테스트 성공/실패 자동 판정
 - **📊 정확도 추적**: 테스트 실행 결과 추적 및 통계 분석
 - **📝 테스트 케이스 자동 생성**: 기록된 액션을 재사용 가능한 테스트 케이스로 저장
 - **🔧 레거시 테스트 보강**: 기존 테스트 케이스에 의미론적 정보 추가 가능
@@ -28,14 +29,14 @@ AWS Bedrock Claude를 활용한 Vision 기반 게임 UI 분석 및 자동화 테
 
 | 모드 | 실행 방법 | 특징 |
 |------|----------|------|
-| **기본 테스트** | `python main.py` | 좌표 기반 녹화/재현, 빠른 실행 |
+| **기본 테스트** | `python main.py` | 좌표 기반 녹화/재현, 빠른 실행, 검증 옵션 지원 |
 | **의미론적 테스트** | `python test_semantic_replay_manual.py` | Vision LLM 분석, UI 변경 대응 가능 |
 
 ### 작동 방식
 
 **기본 테스트 (좌표 기반)**
 ```
-[사용자 플레이 기록] → [좌표 저장] → [동일 좌표로 재실행]
+[사용자 플레이 기록] → [좌표 저장] → [동일 좌표로 재실행] → [검증 (선택)]
 ```
 
 **의미론적 테스트 (Vision LLM 기반)**
@@ -51,13 +52,12 @@ AWS Bedrock Claude를 활용한 Vision 기반 게임 UI 분석 및 자동화 테
 
 **녹화**
 
-https://github.com/user-attachments/assets/basic-record.mp4
-
 https://github.com/hcsung-aws/game-ui-qa-genai-automation/raw/main/docs/demo/basic-record.mp4
 
 **재현**
 
-https://github.com/hcsung-aws/game-ui-qa-genai-automation/raw/main/docs/demo/basic-
+https://github.com/hcsung-aws/game-ui-qa-genai-automation/raw/main/docs/demo/basic-replay.mp4
+
 ### 의미론적 테스트 (Vision LLM 기반)
 
 **녹화**
@@ -141,12 +141,17 @@ game-qa-automation/
 │   ├── ui_analyzer.py             # Vision LLM UI 분석
 │   ├── semantic_action_recorder.py # 의미론적 액션 녹화
 │   ├── semantic_action_replayer.py # 의미론적 액션 재현
-│   ├── script_generator.py        # 테스트 스크립트 생성
+│   ├── script_generator.py        # 테스트 스크립트 생성 및 재현
+│   ├── replay_verifier.py         # Replay 검증 (스크린샷 비교 + Vision LLM)
+│   ├── screenshot_verifier.py     # 스크린샷 유사도 비교
 │   ├── test_case_enricher.py      # 레거시 테스트 케이스 보강
+│   ├── accuracy_tracker.py        # 정확도 추적
 │   ├── cli_interface.py           # CLI 인터페이스
 │   ├── qa_automation_controller.py # 메인 컨트롤러
 │   └── ...
 ├── tests/                         # 테스트
+│   ├── property/                  # Property-based 테스트
+│   └── ...
 ├── test_cases/                    # 저장된 테스트 케이스
 ├── screenshots/                   # 캡처된 스크린샷
 ├── reports/                       # 테스트 리포트
@@ -171,7 +176,10 @@ python main.py
 | `record` | 입력 기록 시작 (5초 대기 후 시작) |
 | `stop` | 기록 중지 |
 | `save <name>` | 기록된 액션을 테스트 케이스로 저장 |
+| `load <name>` | 테스트 케이스 로드 |
 | `replay` | 로드된 테스트 케이스 재실행 |
+| `replay --verify` | 검증 모드로 재실행 (성공/실패 판정) |
+| `replay --verify --report-dir <dir>` | 검증 모드 + 보고서 저장 디렉토리 지정 |
 | `enrich <name>` | 기존 테스트 케이스에 의미론적 정보 추가 |
 | `stats [name]` | 테스트 케이스 실행 이력 및 통계 표시 |
 | `help` | 도움말 표시 |
@@ -190,7 +198,46 @@ python main.py
 ```bash
 # CLI에서 (테스트 케이스 로드 후)
 replay
+
+# 검증 모드로 재실행 (성공/실패 자동 판정)
+replay --verify
+
+# 검증 모드 + 보고서 저장 디렉토리 지정
+replay --verify --report-dir my_reports
 ```
+
+## ✅ 좌표 기반 Replay 검증 기능
+
+좌표 기반 테스트에서도 **테스트 성공/실패 여부를 자동으로 판정**할 수 있습니다.
+
+### 검증 방식
+
+1. **스크린샷 비교**: 기록 시점의 스크린샷과 재현 시점의 스크린샷을 비교하여 유사도 측정
+2. **Vision LLM 재검증**: 스크린샷 유사도가 임계값 미만일 경우, Vision LLM을 사용하여 의미적 일치 여부 판단
+
+### 검증 결과
+
+| 결과 | 조건 |
+|------|------|
+| **pass** | 스크린샷 유사도 ≥ 임계값 |
+| **warning** | 스크린샷 유사도 < 임계값이지만 Vision LLM이 의미적으로 일치한다고 판단 |
+| **fail** | 스크린샷 유사도 < 임계값이고 Vision LLM도 불일치 판단 |
+
+### 보고서 생성
+
+검증 모드로 실행하면 JSON 및 TXT 형식의 보고서가 자동 생성됩니다:
+
+```
+reports/
+├── test_name_20260120_123456_report.json  # JSON 형식 상세 보고서
+└── test_name_20260120_123456_report.txt   # 텍스트 형식 요약 보고서
+```
+
+### CI/CD 통합
+
+검증 모드는 종료 코드를 반환하여 CI/CD 파이프라인에 통합할 수 있습니다:
+- **종료 코드 0**: 테스트 성공 (모든 액션이 pass 또는 warning)
+- **종료 코드 1**: 테스트 실패 (하나 이상의 액션이 fail)
 
 ## 🧠 의미론적 테스트 (Semantic Test)
 
@@ -245,6 +292,7 @@ python test_semantic_replay_manual.py compare <테스트이름>
 |------|----------------------|----------------|
 | 녹화 방식 | 좌표 기반 | 좌표 + Vision LLM 분석 |
 | 재현 방식 | 고정 좌표 클릭 | 의미론적 매칭 후 클릭 |
+| 검증 기능 | `--verify` 옵션으로 지원 | 재현 결과 분석 |
 | UI 변경 대응 | 불가 | 가능 |
 | 실행 속도 | 빠름 | LLM 호출로 느림 |
 | 사용 시나리오 | 단순 반복 테스트 | UI 변경이 잦은 테스트 |
@@ -254,6 +302,9 @@ python test_semantic_replay_manual.py compare <테스트이름>
 ```bash
 # 모든 테스트 실행
 pytest tests/ -v
+
+# Property-based 테스트만 실행
+pytest tests/property/ -v
 
 # 커버리지 포함
 pytest tests/ -v --cov=src --cov-report=html
@@ -296,6 +347,7 @@ This is a game QA automation framework that **records actual user gameplay** and
 - **🎯 Real-time Input Monitoring**: Automatically captures mouse/keyboard inputs using pynput
 - **🤖 Vision LLM-based UI Analysis**: Game screen analysis through AWS Bedrock Claude (Semantic Test)
 - **🔄 Semantic Matching**: Finds and clicks elements with the same meaning even when UI layout changes (Semantic Test)
+- **✅ Coordinate-based Replay Verification**: Automatic pass/fail determination via screenshot comparison + Vision LLM
 - **📊 Accuracy Tracking**: Test execution result tracking and statistical analysis
 - **📝 Auto Test Case Generation**: Saves recorded actions as reusable test cases
 
@@ -305,7 +357,7 @@ This framework provides two test modes:
 
 | Mode | Execution | Features |
 |------|-----------|----------|
-| **Basic Test** | `python main.py` | Coordinate-based recording/replay, fast execution |
+| **Basic Test** | `python main.py` | Coordinate-based recording/replay, fast execution, verification option |
 | **Semantic Test** | `python test_semantic_replay_manual.py` | Vision LLM analysis, handles UI changes |
 
 ## 🎬 Demo Videos
@@ -409,11 +461,47 @@ python main.py
 | `record` | Start recording inputs (starts after 5 second delay) |
 | `stop` | Stop recording |
 | `save <name>` | Save recorded actions as a test case |
+| `load <name>` | Load a test case |
 | `replay` | Replay the loaded test case |
+| `replay --verify` | Replay with verification mode (pass/fail determination) |
+| `replay --verify --report-dir <dir>` | Verification mode + specify report directory |
 | `enrich <name>` | Add semantic information to existing test case |
 | `stats [name]` | Show test case execution history and statistics |
 | `help` | Display help |
 | `quit` / `exit` | Exit the program |
+
+## ✅ Coordinate-based Replay Verification
+
+You can **automatically determine test pass/fail** even in coordinate-based tests.
+
+### Verification Method
+
+1. **Screenshot Comparison**: Compare screenshots from recording time and replay time to measure similarity
+2. **Vision LLM Re-verification**: If screenshot similarity is below threshold, use Vision LLM to determine semantic match
+
+### Verification Results
+
+| Result | Condition |
+|--------|-----------|
+| **pass** | Screenshot similarity ≥ threshold |
+| **warning** | Screenshot similarity < threshold but Vision LLM determines semantic match |
+| **fail** | Screenshot similarity < threshold and Vision LLM determines mismatch |
+
+### Report Generation
+
+Running in verification mode automatically generates reports in JSON and TXT formats:
+
+```
+reports/
+├── test_name_20260120_123456_report.json  # Detailed JSON report
+└── test_name_20260120_123456_report.txt   # Summary text report
+```
+
+### CI/CD Integration
+
+Verification mode returns exit codes for CI/CD pipeline integration:
+- **Exit code 0**: Test passed (all actions are pass or warning)
+- **Exit code 1**: Test failed (one or more actions failed)
 
 ## 🧠 Semantic Testing
 
@@ -468,6 +556,7 @@ Capture Current Screen → Vision LLM Analysis → Match with Stored Semantic In
 |--------|---------------------|---------------|
 | Recording | Coordinate-based | Coordinate + Vision LLM |
 | Replay | Fixed coordinate click | Semantic matching then click |
+| Verification | Supported via `--verify` option | Replay result analysis |
 | UI Change Handling | Not possible | Possible |
 | Execution Speed | Fast | Slower due to LLM calls |
 | Use Case | Simple repetitive tests | Tests with frequent UI changes |
@@ -477,6 +566,9 @@ Capture Current Screen → Vision LLM Analysis → Match with Stored Semantic In
 ```bash
 # Run all tests
 pytest tests/ -v
+
+# Run property-based tests only
+pytest tests/property/ -v
 
 # With coverage
 pytest tests/ -v --cov=src --cov-report=html
