@@ -1,0 +1,222 @@
+{
+  "name": "sr-point-play-test-003",
+  "created_at": "2026-01-18T02:32:47.009871",
+  "capture_delay": 2.0,
+  "script_path": "test_cases\\sr-point-play-test-003.py",
+  "json_path": "test_cases\\sr-point-play-test-003.json",
+  "actions": [
+    {
+      "timestamp": "2026-01-18T02:31:18.138054",
+      "action_type": "click",
+      "x": 472,
+      "y": 378,
+      "description": "클릭 (472, 378)",
+      "screenshot_path": "screenshots\\sr-point-play-test-003/action_0000.png",
+      "screenshot_before_path": "screenshots\\sr-point-play-test-003/action_0000_before.png",
+      "button": "left"
+    },
+    {
+      "timestamp": "2026-01-18T02:31:22.591498",
+      "action_type": "wait",
+      "x": 0,
+      "y": 0,
+      "description": "2.2초 대기"
+    },
+    {
+      "timestamp": "2026-01-18T02:31:24.745603",
+      "action_type": "click",
+      "x": 62,
+      "y": 57,
+      "description": "클릭 (62, 57)",
+      "screenshot_path": "screenshots\\sr-point-play-test-003/action_0001.png",
+      "screenshot_before_path": "screenshots\\sr-point-play-test-003/action_0001_before.png",
+      "button": "left"
+    },
+    {
+      "timestamp": "2026-01-18T02:31:30.203584",
+      "action_type": "wait",
+      "x": 0,
+      "y": 0,
+      "description": "4.5초 대기"
+    },
+    {
+      "timestamp": "2026-01-18T02:31:34.753431",
+      "action_type": "click",
+      "x": 96,
+      "y": 235,
+      "description": "클릭 (96, 235)",
+      "screenshot_path": "screenshots\\sr-point-play-test-003/action_0002.png",
+      "screenshot_before_path": "screenshots\\sr-point-play-test-003/action_0002_before.png",
+      "button": "left"
+    },
+    {
+      "timestamp": "2026-01-18T02:31:37.352705",
+      "action_type": "wait",
+      "x": 0,
+      "y": 0,
+      "description": "3.7초 대기"
+    },
+    {
+      "timestamp": "2026-01-18T02:31:41.072280",
+      "action_type": "click",
+      "x": 370,
+      "y": 150,
+      "description": "클릭 (370, 150)",
+      "screenshot_path": "screenshots\\sr-point-play-test-003/action_0003.png",
+      "screenshot_before_path": "screenshots\\sr-point-play-test-003/action_0003_before.png",
+      "button": "left"
+    },
+    {
+      "timestamp": "2026-01-18T02:31:43.234526",
+      "action_type": "wait",
+      "x": 0,
+      "y": 0,
+      "description": "6.7초 대기"
+    },
+    {
+      "timestamp": "2026-01-18T02:31:49.915485",
+      "action_type": "click",
+      "x": 496,
+      "y": 132,
+      "description": "클릭 (496, 132)",
+      "screenshot_path": "screenshots\\sr-point-play-test-003/action_0004.png",
+      "screenshot_before_path": "screenshots\\sr-point-play-test-003/action_0004_before.png",
+      "button": "left"
+    },
+    {
+      "timestamp": "2026-01-18T02:31:52.216169",
+      "action_type": "wait",
+      "x": 0,
+      "y": 0,
+      "description": "6.3초 대기"
+    },
+    {
+      "timestamp": "2026-01-18T02:31:58.495677",
+      "action_type": "click",
+      "x": 851,
+      "y": 138,
+      "description": "클릭 (851, 138)",
+      "screenshot_path": "screenshots\\sr-point-play-test-003/action_0005.png",
+      "screenshot_before_path": "screenshots\\sr-point-play-test-003/action_0005_before.png",
+      "button": "left"
+    },
+    {
+      "timestamp": "2026-01-18T02:32:00.761692",
+      "action_type": "wait",
+      "x": 0,
+      "y": 0,
+      "description": "6.2초 대기"
+    },
+    {
+      "timestamp": "2026-01-18T02:32:06.989368",
+      "action_type": "click",
+      "x": 1129,
+      "y": 150,
+      "description": "클릭 (1129, 150)",
+      "screenshot_path": "screenshots\\sr-point-play-test-003/action_0006.png",
+      "screenshot_before_path": "screenshots\\sr-point-play-test-003/action_0006_before.png",
+      "button": "left"
+    },
+    {
+      "timestamp": "2026-01-18T02:32:09.273758",
+      "action_type": "wait",
+      "x": 0,
+      "y": 0,
+      "description": "6.4초 대기"
+    },
+    {
+      "timestamp": "2026-01-18T02:32:15.645874",
+      "action_type": "click",
+      "x": 193,
+      "y": 333,
+      "description": "클릭 (193, 333)",
+      "screenshot_path": "screenshots\\sr-point-play-test-003/action_0007.png",
+      "screenshot_before_path": "screenshots\\sr-point-play-test-003/action_0007_before.png",
+      "button": "left"
+    },
+    {
+      "timestamp": "2026-01-18T02:32:17.956933",
+      "action_type": "wait",
+      "x": 0,
+      "y": 0,
+      "description": "4.2초 대기"
+    },
+    {
+      "timestamp": "2026-01-18T02:32:22.131559",
+      "action_type": "click",
+      "x": 135,
+      "y": 446,
+      "description": "클릭 (135, 446)",
+      "screenshot_path": "screenshots\\sr-point-play-test-003/action_0008.png",
+      "screenshot_before_path": "screenshots\\sr-point-play-test-003/action_0008_before.png",
+      "button": "left"
+    },
+    {
+      "timestamp": "2026-01-18T02:32:24.372530",
+      "action_type": "wait",
+      "x": 0,
+      "y": 0,
+      "description": "4.6초 대기"
+    },
+    {
+      "timestamp": "2026-01-18T02:32:28.994514",
+      "action_type": "click",
+      "x": 172,
+      "y": 521,
+      "description": "클릭 (172, 521)",
+      "screenshot_path": "screenshots\\sr-point-play-test-003/action_0009.png",
+      "screenshot_before_path": "screenshots\\sr-point-play-test-003/action_0009_before.png",
+      "button": "left"
+    },
+    {
+      "timestamp": "2026-01-18T02:32:31.367604",
+      "action_type": "wait",
+      "x": 0,
+      "y": 0,
+      "description": "5.2초 대기"
+    },
+    {
+      "timestamp": "2026-01-18T02:32:36.584178",
+      "action_type": "click",
+      "x": 86,
+      "y": 65,
+      "description": "클릭 (86, 65)",
+      "screenshot_path": "screenshots\\sr-point-play-test-003/action_0010.png",
+      "screenshot_before_path": "screenshots\\sr-point-play-test-003/action_0010_before.png",
+      "button": "left"
+    },
+    {
+      "timestamp": "2026-01-18T02:32:38.852705",
+      "action_type": "wait",
+      "x": 0,
+      "y": 0,
+      "description": "5.4초 대기"
+    },
+    {
+      "timestamp": "2026-01-18T02:32:38.852705",
+      "action_type": "wait",
+      "x": 0,
+      "y": 0,
+      "description": "5.9초 대기"
+    },
+    {
+      "timestamp": "2026-01-18T02:32:44.206223",
+      "action_type": "click",
+      "x": 1637,
+      "y": 778,
+      "description": "클릭 (1637, 778)",
+      "screenshot_path": "screenshots\\sr-point-play-test-003/action_0011.png",
+      "screenshot_before_path": "screenshots\\sr-point-play-test-003/action_0011_before.png",
+      "button": "left"
+    },
+    {
+      "timestamp": "2026-01-18T02:32:44.744248",
+      "action_type": "key_press",
+      "x": 0,
+      "y": 0,
+      "description": "키 입력: s",
+      "screenshot_path": "screenshots\\sr-point-play-test-003/action_0012.png",
+      "key": "s"
+    }
+  ]
+}

@@ -499,3 +499,166 @@ class TestCLIInterface:
         captured = capsys.readouterr()
         # 에러 메시지가 없어야 함
         assert '오류' not in captured.out
+
+
+    # ===== replay --verify 명령어 테스트 (Requirements 5.1, 5.2, 5.3, 5.4, 5.5) =====
+    
+    def test_handle_command_replay_with_verify(self, cli, mock_controller, capsys):
+        """replay --verify 명령어 처리 (Requirements 5.1)"""
+        from dataclasses import dataclass, field
+        from typing import List
+        
+        @dataclass
+        class MockReplayReport:
+            test_case_name: str = "test_case"
+            session_id: str = "session_1"
+            start_time: str = "2026-01-16T00:00:00"
+            end_time: str = "2026-01-16T00:01:00"
+            total_actions: int = 10
+            passed_count: int = 8
+            failed_count: int = 1
+            warning_count: int = 1
+            success_rate: float = 0.9
+            verification_results: List = field(default_factory=list)
+            summary: str = "Test summary"
+        
+        mock_controller.current_test_case = {"name": "test_case", "actions": []}
+        mock_controller.script_generator = Mock()
+        mock_controller.script_generator.replay_with_verification = Mock(
+            return_value=(True, MockReplayReport())
+        )
+        
+        result = cli.handle_command(['replay', '--verify'])
+        
+        assert result is True
+        mock_controller.script_generator.replay_with_verification.assert_called_once()
+        
+        captured = capsys.readouterr()
+        assert '검증 모드' in captured.out or '검증 결과' in captured.out
+    
+    def test_handle_command_replay_with_verify_and_report_dir(self, cli, mock_controller, capsys):
+        """replay --verify --report-dir 명령어 처리 (Requirements 5.5)"""
+        from dataclasses import dataclass, field
+        from typing import List
+        
+        @dataclass
+        class MockReplayReport:
+            test_case_name: str = "test_case"
+            session_id: str = "session_1"
+            start_time: str = "2026-01-16T00:00:00"
+            end_time: str = "2026-01-16T00:01:00"
+            total_actions: int = 5
+            passed_count: int = 5
+            failed_count: int = 0
+            warning_count: int = 0
+            success_rate: float = 1.0
+            verification_results: List = field(default_factory=list)
+            summary: str = "Test summary"
+        
+        mock_controller.current_test_case = {"name": "test_case", "actions": []}
+        mock_controller.script_generator = Mock()
+        mock_controller.script_generator.replay_with_verification = Mock(
+            return_value=(True, MockReplayReport())
+        )
+        
+        result = cli.handle_command(['replay', '--verify', '--report-dir', 'custom_reports'])
+        
+        assert result is True
+        mock_controller.script_generator.replay_with_verification.assert_called_once_with(
+            mock_controller.current_test_case,
+            verify=True,
+            report_dir='custom_reports'
+        )
+        
+        captured = capsys.readouterr()
+        assert 'custom_reports' in captured.out
+    
+    def test_handle_command_replay_verify_no_test_case(self, cli, mock_controller, capsys):
+        """replay --verify 명령어 처리 - 로드된 테스트 케이스 없음"""
+        mock_controller.current_test_case = None
+        
+        result = cli.handle_command(['replay', '--verify'])
+        
+        assert result is True
+        
+        captured = capsys.readouterr()
+        assert '로드된 테스트 케이스가 없습니다' in captured.out
+    
+    def test_handle_command_replay_verify_test_passed(self, cli, mock_controller, capsys):
+        """replay --verify 명령어 처리 - 테스트 성공 (Requirements 5.3)"""
+        from dataclasses import dataclass, field
+        from typing import List
+        
+        @dataclass
+        class MockReplayReport:
+            test_case_name: str = "test_case"
+            session_id: str = "session_1"
+            start_time: str = "2026-01-16T00:00:00"
+            end_time: str = "2026-01-16T00:01:00"
+            total_actions: int = 5
+            passed_count: int = 5
+            failed_count: int = 0
+            warning_count: int = 0
+            success_rate: float = 1.0
+            verification_results: List = field(default_factory=list)
+            summary: str = "Test summary"
+        
+        mock_controller.current_test_case = {"name": "test_case", "actions": []}
+        mock_controller.script_generator = Mock()
+        mock_controller.script_generator.replay_with_verification = Mock(
+            return_value=(True, MockReplayReport())
+        )
+        
+        result = cli.handle_command(['replay', '--verify'])
+        
+        assert result is True
+        assert cli.get_last_test_result() is True
+        
+        captured = capsys.readouterr()
+        assert '테스트 성공' in captured.out
+    
+    def test_handle_command_replay_verify_test_failed(self, cli, mock_controller, capsys):
+        """replay --verify 명령어 처리 - 테스트 실패 (Requirements 5.4)"""
+        from dataclasses import dataclass, field
+        from typing import List
+        
+        @dataclass
+        class MockReplayReport:
+            test_case_name: str = "test_case"
+            session_id: str = "session_1"
+            start_time: str = "2026-01-16T00:00:00"
+            end_time: str = "2026-01-16T00:01:00"
+            total_actions: int = 5
+            passed_count: int = 3
+            failed_count: int = 2
+            warning_count: int = 0
+            success_rate: float = 0.6
+            verification_results: List = field(default_factory=list)
+            summary: str = "Test summary"
+        
+        mock_controller.current_test_case = {"name": "test_case", "actions": []}
+        mock_controller.script_generator = Mock()
+        mock_controller.script_generator.replay_with_verification = Mock(
+            return_value=(False, MockReplayReport())
+        )
+        
+        result = cli.handle_command(['replay', '--verify'])
+        
+        assert result is True
+        assert cli.get_last_test_result() is False
+        
+        captured = capsys.readouterr()
+        assert '테스트 실패' in captured.out
+    
+    def test_get_last_test_result_default(self, cli):
+        """get_last_test_result 기본값 테스트"""
+        # 테스트 실행 전에는 True 반환
+        assert cli.get_last_test_result() is True
+    
+    def test_display_help_includes_verify_option(self, cli, capsys):
+        """도움말에 --verify 옵션 포함 확인"""
+        cli.display_help()
+        
+        captured = capsys.readouterr()
+        assert '--verify' in captured.out
+        assert '--report-dir' in captured.out

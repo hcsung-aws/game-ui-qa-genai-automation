@@ -34,25 +34,52 @@ class Action:
 class ActionRecorder:
     """액션 기록기"""
     
-    def __init__(self, config):
+    def __init__(self, config, test_case_name: str = None):
         """
         Args:
             config: 설정 관리자 (ConfigManager)
+            test_case_name: 테스트 케이스 이름 (스크린샷 디렉토리 구분용)
         """
         self.config = config
         self.actions: List[Action] = []
         self.last_action_time: Optional[datetime] = None
         self._screenshot_counter = 0
         self._pending_before_screenshot: Optional[str] = None  # 클릭 전 스크린샷 경로
+        self._test_case_name = test_case_name
         
         # 게임 윈도우 캡처 설정
         window_title = config.get('game.window_title', '')
         self._window_capture = WindowCapture(window_title) if window_title else None
-        self._capture_delay = config.get('automation.capture_delay', 0.5)
+        self._capture_delay = config.get('automation.capture_delay', 2.0)  # 기본 2초
         
-        # 스크린샷 디렉토리 확인
-        screenshot_dir = config.get('automation.screenshot_dir', 'screenshots')
-        os.makedirs(screenshot_dir, exist_ok=True)
+        # 스크린샷 디렉토리 확인 (테스트 케이스별 하위 디렉토리)
+        self._screenshot_base_dir = config.get('automation.screenshot_dir', 'screenshots')
+        self._screenshot_dir = self._get_screenshot_dir()
+        os.makedirs(self._screenshot_dir, exist_ok=True)
+    
+    def _get_screenshot_dir(self) -> str:
+        """테스트 케이스별 스크린샷 디렉토리 경로 반환"""
+        if self._test_case_name:
+            return os.path.join(self._screenshot_base_dir, self._test_case_name)
+        return self._screenshot_base_dir
+    
+    def set_test_case_name(self, name: str):
+        """테스트 케이스 이름 설정 및 디렉토리 생성
+        
+        Args:
+            name: 테스트 케이스 이름
+        """
+        self._test_case_name = name
+        self._screenshot_dir = self._get_screenshot_dir()
+        os.makedirs(self._screenshot_dir, exist_ok=True)
+    
+    def get_capture_delay(self) -> float:
+        """스크린샷 캡처 전 대기 시간 반환
+        
+        Returns:
+            capture_delay 값 (초)
+        """
+        return self._capture_delay
     
     def _find_game_window(self):
         """게임 윈도우 찾기 (최초 1회)"""
@@ -114,8 +141,7 @@ class ActionRecorder:
         if not self.config.get('automation.screenshot_on_action', False):
             return None
         
-        screenshot_dir = self.config.get('automation.screenshot_dir', 'screenshots')
-        screenshot_path = f"{screenshot_dir}/action_{self._screenshot_counter:04d}_before.png"
+        screenshot_path = f"{self._screenshot_dir}/action_{self._screenshot_counter:04d}_before.png"
         
         screenshot = self._capture_game_screenshot()
         if screenshot:
@@ -161,8 +187,7 @@ class ActionRecorder:
             if self._capture_delay > 0:
                 time.sleep(self._capture_delay)
             
-            screenshot_dir = self.config.get('automation.screenshot_dir', 'screenshots')
-            screenshot_path = f"{screenshot_dir}/action_{self._screenshot_counter:04d}.png"
+            screenshot_path = f"{self._screenshot_dir}/action_{self._screenshot_counter:04d}.png"
             
             # 게임 윈도우만 캡처
             screenshot = self._capture_game_screenshot()
@@ -191,8 +216,11 @@ class ActionRecorder:
         """마지막 터미널 입력 패턴 제거
         
         녹화 중단을 위해 터미널에 입력한 내용을 제거한다.
-        - 마지막 key_press들 중 Enter로 끝나는 패턴 제거
-        - 그 직전의 클릭 액션도 제거 (터미널 클릭)
+        패턴 1: [click] + [wait?] + [key_press...] + [Enter] (Enter까지 입력된 경우)
+        패턴 2: [click] + [wait?] + [key_press...] (Enter 전에 녹화 중단된 경우)
+        
+        마지막 key_press가 's', 't', 'o', 'p' 중 하나이거나 'Key.enter'이면
+        stop 명령 입력으로 간주하고 해당 시퀀스와 직전 click을 제거한다.
         
         Args:
             actions: 액션 리스트
@@ -203,35 +231,39 @@ class ActionRecorder:
         if len(actions) < 2:
             return actions
         
-        # 뒤에서부터 key_press 액션들 찾기
+        # 마지막 액션 확인
+        last_action = actions[-1]
+        
+        # stop 명령의 일부인지 확인 (s, t, o, p, Key.enter)
+        stop_chars = {'s', 't', 'o', 'p', 'Key.enter'}
+        
+        if last_action.action_type != 'key_press':
+            return actions
+        
+        if last_action.key not in stop_chars:
+            return actions
+        
+        # stop 패턴으로 판단, 뒤에서부터 제거 대상 찾기
         cut_index = len(actions)
-        found_enter = False
         
         for i in range(len(actions) - 1, -1, -1):
             action = actions[i]
-            
             if action.action_type == 'key_press':
-                # Enter 키로 끝나는지 확인
-                if action.key == 'Key.enter':
-                    found_enter = True
                 cut_index = i
             elif action.action_type == 'wait':
-                # wait 액션은 건너뜀
-                continue
+                cut_index = i
+            elif action.action_type == 'click':
+                # 터미널 클릭도 제거 대상
+                cut_index = i
+                # click 직전의 wait도 제거
+                if i > 0 and actions[i - 1].action_type == 'wait':
+                    cut_index = i - 1
+                break
             else:
-                # 다른 타입의 액션 (click 등)
-                if found_enter:
-                    # Enter가 있었으면 이 액션(터미널 클릭)도 제거
-                    cut_index = i
+                # 다른 타입의 액션이면 여기서 중단
                 break
         
-        if found_enter and cut_index < len(actions):
-            # 직전의 wait 액션도 제거
-            if cut_index > 0 and actions[cut_index - 1].action_type == 'wait':
-                cut_index -= 1
-            return actions[:cut_index]
-        
-        return actions
+        return actions[:cut_index]
     
     def clear_actions(self):
         """기록된 액션 초기화"""

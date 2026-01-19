@@ -2,11 +2,17 @@
 ScriptGenerator - 기록된 액션을 Python 스크립트로 변환
 
 Requirements: 5.1, 5.2, 5.3, 5.4, 2.1, 2.2, 2.3
+좌표 기반 Replay 검증 기능 추가: 1.1, 1.2, 2.1, 2.5, 4.1
 """
 
 import json
+import os
 import re
-from typing import List, Dict, Any, Union
+import time
+from typing import List, Dict, Any, Union, Optional, Tuple
+from PIL import Image
+import pyautogui
+
 from src.input_monitor import Action
 from src.semantic_action_recorder import SemanticAction
 
@@ -20,21 +26,25 @@ class ScriptGenerator:
             config: ConfigManager 인스턴스
         """
         self.config = config
+        self.verifier = None  # ReplayVerifier 인스턴스 (검증 모드용)
+        self._verify_mode = False
+        self._verification_results = []  # 검증 결과 저장
     
     def generate_replay_script(self, actions: List[Action], output_path: str, 
-                               verify_mode: bool = True) -> str:
+                               verify_mode: bool = True, capture_delay: float = 2.0) -> str:
         """재실행 스크립트 생성
         
         Args:
             actions: 액션 리스트
             output_path: 출력 파일 경로
             verify_mode: 검증 모드 지원 여부 (기본: True)
+            capture_delay: 스크린샷 캡처 전 대기 시간 (기본: 2.0초)
             
         Returns:
             생성된 스크립트 경로
         """
-        # 스크립트 헤더 생성
-        script_content = self._generate_script_header(verify_mode)
+        # 스크립트 헤더 생성 (capture_delay 포함)
+        script_content = self._generate_script_header(verify_mode, capture_delay)
         
         # 액션 데이터 생성 (딕셔너리 형식으로 저장)
         script_content += self._generate_actions_data(actions)
@@ -51,11 +61,12 @@ class ScriptGenerator:
         
         return output_path
     
-    def _generate_script_header(self, verify_mode: bool = True) -> str:
+    def _generate_script_header(self, verify_mode: bool = True, capture_delay: float = 2.0) -> str:
         """스크립트 헤더 생성
         
         Args:
             verify_mode: 검증 모드 지원 여부
+            capture_delay: 스크린샷 캡처 전 대기 시간 (초)
             
         Returns:
             헤더 문자열
@@ -92,6 +103,9 @@ except ImportError:
 
 # 게임 윈도우 타이틀
 GAME_WINDOW_TITLE = ''' + repr(window_title) + '''
+
+# 녹화 시점의 스크린샷 캡처 대기 시간 (검증 시 동일하게 적용)
+CAPTURE_DELAY = ''' + str(capture_delay) + '''
 
 # 윈도우 오프셋 캐시
 _window_offset = None
@@ -345,8 +359,9 @@ except ImportError:
             # 검증 모드: screenshot_path가 있는 액션만 검증 (wait 액션이 아닌 경우)
             if action.action_type != 'wait':
                 if verify_mode and action.screenshot_path:
-                    function += "        # 검증 모드: 스크린샷 검증\n"
+                    function += "        # 검증 모드: CAPTURE_DELAY 대기 후 스크린샷 검증 (녹화 시점과 동일한 타이밍)\n"
                     function += "        if verifier:\n"
+                    function += "            time.sleep(CAPTURE_DELAY)  # 화면 전환 완료 대기\n"
                     # 다음 액션이 있으면 다음 액션 정보 전달
                     if i < len(actions):
                         function += f"            next_action = ACTIONS[{i}] if {i} < len(ACTIONS) else None\n"
@@ -677,6 +692,226 @@ except ImportError:
         """
         test_case = self.load_test_case_json(input_path)
         return test_case.get("actions", [])
+
+    def replay_with_verification(
+        self, 
+        test_case: Dict[str, Any],
+        verify: bool = False,
+        report_dir: str = "reports"
+    ) -> Tuple[bool, Optional[Any]]:
+        """검증 모드로 테스트 케이스 재실행
+        
+        좌표 기반 replay에서 검증 기능을 활성화하여 테스트 성공/실패 여부를 
+        판단하고 보고서를 생성한다.
+        
+        Requirements: 1.1, 1.2, 2.1, 2.5
+        
+        Args:
+            test_case: 테스트 케이스 데이터 (name, actions 필드 포함)
+            verify: 검증 활성화 여부
+            report_dir: 보고서 저장 디렉토리
+            
+        Returns:
+            (테스트 성공 여부, 보고서 객체)
+            - verify=False인 경우: (True, None)
+            - verify=True인 경우: (성공여부, ReplayReport)
+        """
+        from src.replay_verifier import ReplayVerifier
+        from src.window_capture import WindowCapture
+        
+        test_case_name = test_case.get("name", "unknown")
+        actions = test_case.get("actions", [])
+        
+        # 액션이 딕셔너리 리스트인 경우 그대로 사용
+        # Action/SemanticAction 객체인 경우 딕셔너리로 변환
+        action_dicts = []
+        for action in actions:
+            if isinstance(action, dict):
+                action_dicts.append(action)
+            elif hasattr(action, 'to_dict'):
+                action_dicts.append(action.to_dict())
+            else:
+                # Action 객체의 경우 수동 변환
+                action_dicts.append({
+                    "timestamp": getattr(action, 'timestamp', ''),
+                    "action_type": getattr(action, 'action_type', ''),
+                    "x": getattr(action, 'x', 0),
+                    "y": getattr(action, 'y', 0),
+                    "description": getattr(action, 'description', ''),
+                    "screenshot_path": getattr(action, 'screenshot_path', None),
+                    "button": getattr(action, 'button', None),
+                    "key": getattr(action, 'key', None),
+                    "scroll_dx": getattr(action, 'scroll_dx', None),
+                    "scroll_dy": getattr(action, 'scroll_dy', None),
+                })
+        
+        self._verify_mode = verify
+        self._verification_results = []
+        
+        # 검증 모드 초기화
+        if verify:
+            self.verifier = ReplayVerifier(self.config)
+            self.verifier.start_verification_session(test_case_name)
+            print(f"✓ 검증 모드 활성화: {test_case_name}")
+        else:
+            self.verifier = None
+        
+        # 윈도우 오프셋 가져오기
+        window_title = self.config.get('game.window_title', '')
+        window_offset = (0, 0)
+        if window_title:
+            try:
+                wc = WindowCapture(window_title)
+                if wc.find_window():
+                    rect = wc.get_window_rect()
+                    if rect:
+                        window_offset = (rect[0], rect[1])
+                        print(f"✓ 게임 윈도우 감지: 오프셋 {window_offset}")
+            except Exception as e:
+                print(f"⚠ 윈도우 오프셋 가져오기 실패: {e}")
+        
+        if window_offset == (0, 0):
+            print("⚠ 게임 윈도우를 찾지 못했습니다. 좌표가 정확하지 않을 수 있습니다.")
+        
+        print(f"총 {len(action_dicts)}개의 액션을 재실행합니다...")
+        print()
+        
+        # 각 액션 실행
+        for i, action_dict in enumerate(action_dicts):
+            action_type = action_dict.get('action_type', '')
+            description = action_dict.get('description', f'액션 {i}')
+            
+            print(f"[{i+1}/{len(action_dicts)}] {description}")
+            
+            try:
+                # 액션 실행
+                self._execute_single_action(action_dict, window_offset)
+                
+                # 액션 간 지연
+                action_delay = self.config.get('automation.action_delay', 0.5)
+                if action_delay > 0:
+                    time.sleep(action_delay)
+                
+                # 검증 수행 (wait 액션이 아닌 경우)
+                if verify and action_type != 'wait':
+                    next_action = action_dicts[i + 1] if i + 1 < len(action_dicts) else None
+                    result = self._execute_action_with_verification(action_dict, i, next_action)
+                    self._verification_results.append(result)
+                    
+            except Exception as e:
+                print(f"  ❌ 액션 실행 실패: {e}")
+                # 검증 실패 시에도 다음 액션 계속 실행 (Requirements 4.1)
+                if verify:
+                    from src.replay_verifier import VerificationResult
+                    fail_result = VerificationResult(
+                        action_index=i,
+                        action_description=description,
+                        screenshot_match=False,
+                        screenshot_similarity=0.0,
+                        final_result="fail",
+                        details={"error": str(e)}
+                    )
+                    self._verification_results.append(fail_result)
+                    self.verifier.verification_results.append(fail_result)
+                continue
+        
+        print()
+        print("✓ 재실행 완료")
+        
+        # 보고서 생성 및 저장
+        if verify and self.verifier:
+            report = self.verifier.generate_report()
+            self.verifier.print_report(report)
+            self.verifier.save_report(report, report_dir)
+            
+            # 테스트 결과 판정: 하나라도 fail이 있으면 실패
+            test_passed = all(
+                r.final_result != "fail" 
+                for r in self.verifier.verification_results
+            )
+            return test_passed, report
+        
+        return True, None
+    
+    def _execute_single_action(self, action_dict: Dict[str, Any], window_offset: Tuple[int, int]):
+        """단일 액션 실행
+        
+        Args:
+            action_dict: 액션 데이터 딕셔너리
+            window_offset: 윈도우 오프셋 (offset_x, offset_y)
+        """
+        action_type = action_dict.get('action_type', '')
+        x = action_dict.get('x', 0)
+        y = action_dict.get('y', 0)
+        
+        # 윈도우 상대 좌표를 스크린 절대 좌표로 변환
+        screen_x = x + window_offset[0]
+        screen_y = y + window_offset[1]
+        
+        if action_type == 'click':
+            button = action_dict.get('button', 'left')
+            pyautogui.click(screen_x, screen_y, button=button)
+            
+        elif action_type == 'key_press':
+            key = action_dict.get('key', '')
+            if key:
+                if str(key).startswith('Key.'):
+                    key_name = str(key).replace('Key.', '')
+                    pyautogui.press(key_name)
+                else:
+                    pyautogui.write(str(key))
+                    
+        elif action_type == 'scroll':
+            scroll_dy = action_dict.get('scroll_dy', 0)
+            if scroll_dy != 0:
+                pyautogui.scroll(scroll_dy * 100, screen_x, screen_y)
+                
+        elif action_type == 'wait':
+            # description에서 시간 파싱
+            description = action_dict.get('description', '')
+            wait_time = self._parse_wait_time(description)
+            time.sleep(wait_time)
+    
+    def _execute_action_with_verification(
+        self,
+        action: Dict[str, Any],
+        action_index: int,
+        next_action: Optional[Dict[str, Any]] = None
+    ) -> Any:
+        """액션 실행 후 검증 수행
+        
+        액션 실행 후 현재 화면을 캡처하고 ReplayVerifier를 사용하여 검증한다.
+        검증 실패 시에도 다음 액션을 계속 실행한다.
+        
+        Requirements: 1.2, 4.1
+        
+        Args:
+            action: 액션 데이터 딕셔너리
+            action_index: 액션 인덱스
+            next_action: 다음 액션 데이터 (현재 사용하지 않음)
+            
+        Returns:
+            VerificationResult 객체
+        """
+        if not self.verifier:
+            from src.replay_verifier import VerificationResult
+            return VerificationResult(
+                action_index=action_index,
+                action_description=action.get('description', ''),
+                screenshot_match=False,
+                screenshot_similarity=0.0,
+                final_result="warning",
+                details={"note": "검증기 없음"}
+            )
+        
+        # ReplayVerifier의 capture_and_verify 호출
+        result = self.verifier.capture_and_verify(action_index, action, next_action)
+        
+        # 결과 상태 출력
+        status_icon = {"pass": "✓", "fail": "✗", "warning": "⚠"}.get(result.final_result, "?")
+        print(f"  {status_icon} 검증: {result.final_result} (유사도: {result.screenshot_similarity:.3f})")
+        
+        return result
 
 
 if __name__ == '__main__':

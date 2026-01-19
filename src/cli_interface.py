@@ -61,7 +61,9 @@ class CLIInterface:
   record             - 입력 기록 시작 (사용자가 직접 게임 플레이)
   stop               - 입력 기록 중지
   save <name>        - 기록된 액션을 테스트 케이스로 저장
-  replay             - 로드된 테스트 케이스 재실행
+  replay [options]   - 로드된 테스트 케이스 재실행
+                       --verify: 검증 모드 활성화
+                       --report-dir <dir>: 보고서 저장 디렉토리 (기본: reports)
   enrich <name>      - 기존 테스트 케이스에 의미론적 정보 추가
   stats [name]       - 테스트 케이스 실행 이력 및 통계 표시
   help               - 도움말 표시
@@ -94,7 +96,7 @@ class CLIInterface:
         elif cmd == "save":
             self._handle_save(args)
         elif cmd == "replay":
-            self._handle_replay()
+            return self._handle_replay_with_args(args)
         elif cmd == "enrich":
             self._handle_enrich(args)
         elif cmd == "stats":
@@ -132,16 +134,28 @@ class CLIInterface:
         """record 명령어 처리 (Requirements 4.3)
         
         입력 모니터링을 시작한다.
+        테스트 케이스 이름을 먼저 입력받아 스크린샷 디렉토리를 구분한다.
         5초 대기 후 기록을 시작하여 사용자가 게임 창을 활성화할 시간을 준다.
         """
         import time
         try:
+            # 테스트 케이스 이름 입력받기
+            print("테스트 케이스 이름을 입력하세요 (스크린샷 저장 디렉토리로 사용됩니다):")
+            test_case_name = input("  이름: ").strip()
+            
+            if not test_case_name:
+                print("❌ 테스트 케이스 이름이 필요합니다.")
+                return
+            
+            print(f"✓ 테스트 케이스: {test_case_name}")
+            print(f"  스크린샷 저장 경로: screenshots/{test_case_name}/")
+            print()
             print("✓ 5초 후 입력 기록을 시작합니다. 게임 창을 활성화하세요...")
             for i in range(5, 0, -1):
                 print(f"  {i}...")
                 time.sleep(1)
             
-            self.controller.start_recording()
+            self.controller.start_recording(test_case_name)
             print("✓ 입력 기록을 시작합니다!")
             print("  게임을 플레이하세요. 모든 마우스/키보드 입력이 기록됩니다.")
             print("  'stop' 명령으로 기록을 중지하세요.")
@@ -151,15 +165,22 @@ class CLIInterface:
     def _handle_stop(self):
         """stop 명령어 처리 (Requirements 4.4)
         
-        입력 모니터링을 중지하고 기록된 액션 수를 표시한다.
+        입력 모니터링을 중지하고 기록된 액션을 자동 저장한다.
         """
         try:
-            self.controller.stop_recording()
+            test_case_name = self.controller.stop_recording()
             actions = self.controller.get_actions()
             action_count = len(actions)
             print(f"✓ 입력 기록을 중지했습니다. {action_count}개의 액션이 기록되었습니다.")
             
-            if action_count > 0:
+            if action_count > 0 and test_case_name:
+                # 자동 저장
+                self.controller.save_test_case(test_case_name)
+                print(f"✓ 테스트 케이스 '{test_case_name}'이(가) 자동 저장되었습니다.")
+                print(f"  스크립트: test_cases/{test_case_name}.py")
+                print(f"  데이터: test_cases/{test_case_name}.json")
+                print(f"  스크린샷: screenshots/{test_case_name}/")
+            elif action_count > 0:
                 print("  'save <이름>' 명령으로 테스트 케이스를 저장하세요.")
         except Exception as e:
             print(f"❌ 기록 중지 중 오류 발생: {e}")
@@ -205,6 +226,111 @@ class CLIInterface:
             print("  먼저 'load <이름>' 명령으로 테스트 케이스를 로드하세요.")
         except Exception as e:
             print(f"❌ 재실행 중 오류 발생: {e}")
+    
+    def _handle_replay_with_args(self, args: List[str]) -> bool:
+        """replay 명령어 처리 (인자 포함) (Requirements 5.1, 5.2, 5.3, 5.4, 5.5)
+        
+        --verify 옵션으로 검증 모드를 활성화하고,
+        --report-dir 옵션으로 보고서 저장 디렉토리를 지정할 수 있다.
+        
+        Args:
+            args: 명령어 인자 (--verify, --report-dir 등)
+            
+        Returns:
+            계속 실행 여부 (항상 True)
+        """
+        # 인자 파싱
+        verify = False
+        report_dir = "reports"
+        
+        i = 0
+        while i < len(args):
+            arg = args[i]
+            if arg == "--verify":
+                verify = True
+            elif arg == "--report-dir":
+                if i + 1 < len(args):
+                    report_dir = args[i + 1]
+                    i += 1
+                else:
+                    print("❌ --report-dir 옵션에 디렉토리 경로가 필요합니다.")
+                    return True
+            i += 1
+        
+        # 검증 모드가 아니면 기존 방식으로 실행
+        if not verify:
+            self._handle_replay()
+            return True
+        
+        # 검증 모드로 실행 (Requirements 5.1)
+        try:
+            if not self.controller.current_test_case:
+                print("❌ 로드된 테스트 케이스가 없습니다.")
+                print("  먼저 'load <이름>' 명령으로 테스트 케이스를 로드하세요.")
+                return True
+            
+            print("테스트 케이스를 검증 모드로 재실행합니다...")
+            print(f"  보고서 저장 디렉토리: {report_dir}")
+            
+            # ScriptGenerator를 사용하여 검증 모드로 실행
+            test_passed, report = self.controller.script_generator.replay_with_verification(
+                self.controller.current_test_case,
+                verify=True,
+                report_dir=report_dir
+            )
+            
+            # 테스트 결과 요약 출력 (Requirements 5.2)
+            self._display_verification_summary(test_passed, report)
+            
+            # 종료 코드 저장 (CLI 종료 시 사용)
+            self._last_test_result = test_passed
+            
+        except ValueError as e:
+            print(f"❌ 오류: {e}")
+            print("  먼저 'load <이름>' 명령으로 테스트 케이스를 로드하세요.")
+            self._last_test_result = False
+        except Exception as e:
+            print(f"❌ 재실행 중 오류 발생: {e}")
+            self._last_test_result = False
+        
+        return True
+    
+    def _display_verification_summary(self, test_passed: bool, report):
+        """검증 결과 요약 출력 (Requirements 5.2)
+        
+        Args:
+            test_passed: 테스트 성공 여부
+            report: ReplayReport 객체
+        """
+        print()
+        print("=" * 50)
+        print("       검증 결과 요약")
+        print("=" * 50)
+        
+        if report:
+            print(f"  테스트 케이스: {report.test_case_name}")
+            print(f"  전체 액션 수: {report.total_actions}")
+            print("-" * 50)
+            print(f"  성공 (pass): {report.passed_count}")
+            print(f"  경고 (warning): {report.warning_count}")
+            print(f"  실패 (fail): {report.failed_count}")
+            print("-" * 50)
+            print(f"  성공률: {report.success_rate * 100:.1f}%")
+        
+        print()
+        if test_passed:
+            print("✓ 테스트 성공")
+        else:
+            print("✗ 테스트 실패")
+        print("=" * 50)
+    
+    def get_last_test_result(self) -> bool:
+        """마지막 테스트 결과 반환 (Requirements 5.3, 5.4)
+        
+        Returns:
+            테스트 성공 여부 (True: 성공, False: 실패)
+        """
+        return getattr(self, '_last_test_result', True)
     
     def _display_matching_statistics(self):
         """재생 결과의 매칭 통계 출력 (Requirements 4.1, 4.3, 4.4)
@@ -461,8 +587,8 @@ if __name__ == '__main__':
             print("[Mock] 게임 시작")
             return True
         
-        def start_recording(self):
-            print("[Mock] 기록 시작")
+        def start_recording(self, test_case_name=None):
+            print(f"[Mock] 기록 시작 (테스트 케이스: {test_case_name})")
         
         def stop_recording(self):
             print("[Mock] 기록 중지")

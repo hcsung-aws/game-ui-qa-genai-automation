@@ -177,13 +177,11 @@ class ReplayVerifier:
     def _capture_screenshot(self) -> Image.Image:
         """게임 윈도우 스크린샷 캡처
         
+        Note: 캡처 전 대기는 호출자(스크립트)에서 CAPTURE_DELAY로 처리함
+        
         Returns:
             PIL Image 객체
         """
-        # 캡처 전 대기 (화면 전환 시간 확보)
-        if self._capture_delay > 0:
-            time.sleep(self._capture_delay)
-        
         # 게임 윈도우만 캡처 시도
         if self._window_capture and self._window_capture._hwnd:
             image = self._window_capture.capture_window_region()
@@ -543,6 +541,138 @@ class ReplayVerifier:
         print(report.summary)
         print("=" * 60)
         print()
+    
+    def verify_coordinate_action(
+        self,
+        action_index: int,
+        action: Dict[str, Any],
+        current_screenshot: Image.Image
+    ) -> VerificationResult:
+        """좌표 기반 액션 검증
+        
+        semantic_info가 없는 액션에 대해 screenshot_path만으로 검증한다.
+        screenshot_path가 없으면 warning으로 처리하고 검증을 건너뛴다.
+        
+        Requirements: 3.1, 3.2
+        
+        Args:
+            action_index: 액션 인덱스
+            action: 액션 데이터 (screenshot_path 포함)
+            current_screenshot: 현재 화면 캡처
+            
+        Returns:
+            검증 결과
+        """
+        description = action.get('description', f'액션 {action_index}')
+        expected_screenshot = action.get('screenshot_path', '')
+        
+        # 상대 경로를 절대 경로로 변환 (프로젝트 루트 기준)
+        if expected_screenshot and not os.path.isabs(expected_screenshot):
+            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            expected_screenshot = expected_screenshot.replace('/', os.sep).replace('\\', os.sep)
+            expected_screenshot = os.path.join(project_root, expected_screenshot)
+            expected_screenshot = os.path.normpath(expected_screenshot)
+        
+        result = VerificationResult(
+            action_index=action_index,
+            action_description=description,
+            screenshot_match=False,
+            screenshot_similarity=0.0
+        )
+        result.details["verification_type"] = "coordinate_action"
+        result.details["expected_screenshot_path"] = expected_screenshot
+        
+        # Requirements 3.2: screenshot_path가 없으면 warning 처리
+        if not expected_screenshot or not os.path.exists(expected_screenshot):
+            result.final_result = "warning"
+            result.details["note"] = "screenshot_path 없음 또는 파일 미존재, 검증 생략"
+            logger.warning(f"[{action_index}] screenshot_path 없음, warning 처리: {expected_screenshot}")
+            self.verification_results.append(result)
+            return result
+        
+        # replay 스크린샷 저장
+        try:
+            if self._replay_screenshots_dir:
+                replay_screenshot_path = os.path.join(
+                    self._replay_screenshots_dir, 
+                    f"action_{action_index:04d}.png"
+                )
+                current_screenshot.save(replay_screenshot_path)
+                result.details["replay_screenshot"] = replay_screenshot_path
+        except Exception as e:
+            logger.warning(f"replay 스크린샷 저장 실패: {e}")
+        
+        # Requirements 3.1: screenshot_path로 검증 수행
+        try:
+            verify_result = self.screenshot_verifier.verify_screenshot(
+                expected_screenshot, current_screenshot
+            )
+            result.screenshot_match = verify_result["match"]
+            result.screenshot_similarity = verify_result["similarity"]
+            result.details["screenshot_verification"] = verify_result
+            
+            if result.screenshot_match:
+                # 스크린샷 일치 - PASS
+                result.final_result = "pass"
+                logger.info(f"[{action_index}] 좌표 기반 검증 통과 (similarity={result.screenshot_similarity:.3f})")
+            else:
+                # Vision LLM으로 재검증
+                logger.info(f"[{action_index}] 스크린샷 불일치 (similarity={result.screenshot_similarity:.3f}), Vision LLM 검증 시도...")
+                result.vision_verified = True
+                
+                try:
+                    vision_match, vision_details = self._verify_with_vision_llm(
+                        expected_screenshot, current_screenshot, action
+                    )
+                    result.vision_match = vision_match
+                    result.details["vision_details"] = vision_details
+                    
+                    if vision_match:
+                        result.final_result = "warning"  # 스크린샷은 다르지만 의미적으로 일치
+                        logger.info(f"[{action_index}] Vision LLM 검증 통과 (의미적 일치)")
+                    else:
+                        result.final_result = "fail"
+                        logger.warning(f"[{action_index}] Vision LLM 검증 실패")
+                        
+                except Exception as e:
+                    logger.error(f"Vision LLM 검증 오류: {e}")
+                    # Vision LLM 실패해도 스크린샷 유사도가 높으면 warning으로 처리
+                    if result.screenshot_similarity >= 0.7:
+                        result.final_result = "warning"
+                        result.details["note"] = f"Vision LLM 오류, 유사도 {result.screenshot_similarity:.1%}로 warning 처리"
+                    else:
+                        result.final_result = "fail"
+                    result.details["vision_error"] = str(e)
+                    
+        except Exception as e:
+            logger.error(f"스크린샷 검증 실패: {e}")
+            result.final_result = "fail"
+            result.details["error"] = str(e)
+        
+        self.verification_results.append(result)
+        return result
+    
+    def determine_test_result(self) -> bool:
+        """전체 테스트 결과 판정
+        
+        하나라도 실패한 액션이 있으면 False 반환.
+        모두 pass 또는 warning이면 True 반환.
+        
+        Requirements: 4.3
+        
+        Returns:
+            테스트 성공 여부
+        """
+        if not self.verification_results:
+            return True  # 검증 결과가 없으면 성공으로 간주
+        
+        # 하나라도 fail이 있으면 전체 테스트 실패
+        for result in self.verification_results:
+            if result.final_result == "fail":
+                return False
+        
+        # 모두 pass 또는 warning이면 성공
+        return True
     
     def calculate_matching_statistics(self, replay_results: List[ReplayResult]) -> MatchingStatistics:
         """매칭 방법별 통계 계산

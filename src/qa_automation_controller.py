@@ -44,6 +44,7 @@ class QAAutomationController:
         self.test_case_enricher: Optional[TestCaseEnricher] = None
         self.current_test_case: Optional[dict] = None
         self._initialized = False
+        self._recording_test_case_name: Optional[str] = None  # 녹화 중인 테스트 케이스 이름
     
     def initialize(self) -> bool:
         """시스템 초기화
@@ -97,22 +98,45 @@ class QAAutomationController:
         self._ensure_initialized()
         return self.game_manager.start_game()
     
-    def start_recording(self):
+    def start_recording(self, test_case_name: str = None):
         """입력 기록 시작 (Requirements 3.1)
         
         pynput을 사용하여 마우스와 키보드 입력 모니터링을 시작한다.
+        
+        Args:
+            test_case_name: 테스트 케이스 이름 (스크린샷 디렉토리 구분용)
         """
         self._ensure_initialized()
         self.action_recorder.clear_actions()
+        
+        # 테스트 케이스 이름 저장 (stop 시 자동 저장용)
+        self._recording_test_case_name = test_case_name
+        
+        # 테스트 케이스 이름 설정 (스크린샷 디렉토리 구분)
+        if test_case_name:
+            self.action_recorder.set_test_case_name(test_case_name)
+        
         self.input_monitor.start_monitoring()
     
-    def stop_recording(self):
+    def stop_recording(self) -> Optional[str]:
         """입력 기록 중지 (Requirements 3.8)
         
         입력 모니터링을 중지한다.
+        
+        Returns:
+            녹화 중이던 테스트 케이스 이름 (없으면 None)
         """
         self._ensure_initialized()
         self.input_monitor.stop_monitoring()
+        return self._recording_test_case_name
+    
+    def get_recording_test_case_name(self) -> Optional[str]:
+        """현재 녹화 중인 테스트 케이스 이름 반환
+        
+        Returns:
+            테스트 케이스 이름 (녹화 중이 아니면 None)
+        """
+        return self._recording_test_case_name
     
     def get_actions(self) -> List[Action]:
         """기록된 액션 목록 반환
@@ -127,6 +151,7 @@ class QAAutomationController:
         """테스트 케이스 저장 (Requirements 5.1)
         
         기록된 액션을 테스트 케이스로 저장하고 Replay Script를 생성한다.
+        녹화 시점의 capture_delay 설정값도 함께 저장한다.
         
         Args:
             name: 테스트 케이스 이름
@@ -147,13 +172,17 @@ class QAAutomationController:
         script_path = os.path.join(test_cases_dir, f"{name}.py")
         json_path = os.path.join(test_cases_dir, f"{name}.json")
         
-        # Replay Script 생성
-        self.script_generator.generate_replay_script(actions, script_path)
+        # 녹화 시점의 capture_delay 값 가져오기
+        capture_delay = self.action_recorder.get_capture_delay()
         
-        # 액션 데이터를 JSON으로 저장
+        # Replay Script 생성 (capture_delay 포함)
+        self.script_generator.generate_replay_script(actions, script_path, capture_delay=capture_delay)
+        
+        # 액션 데이터를 JSON으로 저장 (capture_delay 포함)
         test_case_data = {
             "name": name,
             "created_at": datetime.now().isoformat(),
+            "capture_delay": capture_delay,
             "script_path": script_path,
             "json_path": json_path,
             "actions": [self._action_to_dict(action) for action in actions]
