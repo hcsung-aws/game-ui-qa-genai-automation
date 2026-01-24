@@ -148,17 +148,52 @@ game-qa-automation/
 │   ├── accuracy_tracker.py        # 정확도 추적
 │   ├── cli_interface.py           # CLI 인터페이스
 │   ├── qa_automation_controller.py # 메인 컨트롤러
+│   ├── bvt_integration/           # BVT 통합 모듈 (개발 중)
+│   │   ├── models.py              # 데이터 모델
+│   │   ├── bvt_parser.py          # BVT CSV 파서
+│   │   ├── tc_loader.py           # 테스트 케이스 로더
+│   │   └── summary_generator.py   # 요약 문서 생성기
 │   └── ...
 ├── tests/                         # 테스트
 │   ├── property/                  # Property-based 테스트
 │   └── ...
 ├── test_cases/                    # 저장된 테스트 케이스
+├── bvt_samples/                   # BVT 샘플 파일
+│   └── BVT_example.csv            # 예제 BVT 파일 (개발용)
 ├── screenshots/                   # 캡처된 스크린샷
 ├── reports/                       # 테스트 리포트
 ├── config.json                    # 설정 파일
 ├── requirements.txt               # Python 의존성
 └── main.py                        # 메인 진입점
 ```
+
+## 📊 BVT 통합 기능 (개발 중)
+
+BVT(Build Verification Test) 테스트 데이터와 의미론적 테스트 케이스를 연결하는 자동화 파이프라인입니다.
+
+### BVT 파일 설정
+
+실제 게임의 BVT 파일은 보안상 Git에 포함되지 않습니다. 개발 시 다음과 같이 설정하세요:
+
+1. **예제 파일**: `bvt_samples/BVT_example.csv` - 개발 참고용 예제 (Git에 포함)
+2. **실제 파일**: `bvt_samples/BVT_*.csv` (example 제외) - 실제 게임 데이터 (Git에서 제외)
+
+```bash
+# 실제 BVT 파일 추가 (gitignore 처리됨)
+cp your_game_bvt.csv bvt_samples/BVT_YourGame.csv
+```
+
+### 데모 실행
+
+```bash
+# BVT 통합 데모 (파싱, 로딩, 요약 생성)
+python demo_bvt_integration.py
+
+# 의미론적 테스트 케이스 분석
+python demo_semantic_test_viewer.py test_cases/your_test_semantic.json
+```
+
+> ⚠️ **주의**: 실제 BVT 파일이 없으면 예제 파일(`BVT_example.csv`)이 자동으로 사용됩니다.
 
 ## 💻 사용법
 

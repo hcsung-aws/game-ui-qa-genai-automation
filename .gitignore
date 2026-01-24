@@ -53,6 +53,11 @@ screenshots/replay_*/
 reports/*.json
 reports/*.txt
 reports/*.html
+reports/*.md
+
+# BVT samples (실제 게임 데이터는 제외, 예제만 포함)
+bvt_samples/*.csv
+!bvt_samples/BVT_example.csv
 
 # Test cases (optional - uncomment if you want to exclude)
 # test_cases/*.json
