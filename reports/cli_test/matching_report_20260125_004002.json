@@ -1,0 +1,211 @@
+{
+  "generated_at": "2026-01-25T00:40:02.883162",
+  "total_bvt_items": 20,
+  "matched_items": 0,
+  "unmatched_items": 20,
+  "high_confidence_matches": [],
+  "low_confidence_matches": [],
+  "unmatched_bvt_cases": [
+    {
+      "no": 1,
+      "category1": "메인화면",
+      "category2": "공통 UI",
+      "category3": "최초 접속",
+      "check": "최초 접속 시 메인 로비로 노출되는 것 확인",
+      "test_result": "Not Tested",
+      "bts_id": "",
+      "comment": ""
+    },
+    {
+      "no": 2,
+      "category1": "",
+      "category2": "",
+      "category3": "화면 전환",
+      "check": "화면 스와이프 시 좌/우측 화면으로 전환되는 것 확인",
+      "test_result": "Not Tested",
+      "bts_id": "",
+      "comment": ""
+    },
+    {
+      "no": 3,
+      "category1": "",
+      "category2": "",
+      "category3": "프로필 아이콘",
+      "check": "유저 프로필 아이콘 노출 및 터치 시 프로필 설정 기능 동작 확인",
+      "test_result": "Not Tested",
+      "bts_id": "",
+      "comment": ""
+    },
+    {
+      "no": 4,
+      "category1": "",
+      "category2": "",
+      "category3": "보유 재화 목록",
+      "check": "보유 재화 수량 노출 확인",
+      "test_result": "Not Tested",
+      "bts_id": "",
+      "comment": ""
+    },
+    {
+      "no": 5,
+      "category1": "",
+      "category2": "",
+      "category3": "채팅",
+      "check": "채팅 아이콘 노출 및 버튼 터치 시 메뉴 이동 확인",
+      "test_result": "Not Tested",
+      "bts_id": "",
+      "comment": ""
+    },
+    {
+      "no": 6,
+      "category1": "",
+      "category2": "",
+      "category3": "친구",
+      "check": "친구 아이콘 노출 및 버튼 터치 시 메뉴 이동 확인",
+      "test_result": "Not Tested",
+      "bts_id": "",
+      "comment": ""
+    },
+    {
+      "no": 7,
+      "category1": "",
+      "category2": "",
+      "category3": "설정",
+      "check": "설정 아이콘 노출 및 버튼 터치 시 메뉴 이동 확인",
+      "test_result": "Not Tested",
+      "bts_id": "",
+      "comment": ""
+    },
+    {
+      "no": 8,
+      "category1": "",
+      "category2": "하단 메뉴",
+      "category3": "캐릭터",
+      "check": "캐릭터 정보창 버튼 노출 및 메뉴 이동 확인",
+      "test_result": "Not Tested",
+      "bts_id": "",
+      "comment": ""
+    },
+    {
+      "no": 9,
+      "category1": "",
+      "category2": "",
+      "category3": "인벤토리",
+      "check": "인벤토리 버튼 노출 및 메뉴 이동 확인",
+      "test_result": "Not Tested",
+      "bts_id": "",
+      "comment": ""
+    },
+    {
+      "no": 10,
+      "category1": "",
+      "category2": "",
+      "category3": "상점",
+      "check": "상점 버튼 노출 및 메뉴 이동 확인",
+      "test_result": "Not Tested",
+      "bts_id": "",
+      "comment": ""
+    },
+    {
+      "no": 11,
+      "category1": "주요 기능",
+      "category2": "프로필 기능",
+      "category3": "프로필 메뉴",
+      "check": "프로필 아이콘 터치 시 프로필 팝업 노출 확인",
+      "test_result": "Not Tested",
+      "bts_id": "",
+      "comment": ""
+    },
+    {
+      "no": 12,
+      "category1": "",
+      "category2": "",
+      "category3": "프로필 설정",
+      "check": "프로필 팝업에서 편집 버튼 터치 시 프로필 설정으로 이동 확인",
+      "test_result": "Not Tested",
+      "bts_id": "",
+      "comment": ""
+    },
+    {
+      "no": 13,
+      "category1": "",
+      "category2": "우측 메뉴 기능",
+      "category3": "채팅",
+      "check": "채팅 영역 터치 시 채팅 UI 노출 및 기능 정상 사용",
+      "test_result": "Not Tested",
+      "bts_id": "",
+      "comment": ""
+    },
+    {
+      "no": 14,
+      "category1": "",
+      "category2": "",
+      "category3": "친구",
+      "check": "친구 아이콘 터치 시 친구 메뉴 입장 확인",
+      "test_result": "Not Tested",
+      "bts_id": "",
+      "comment": ""
+    },
+    {
+      "no": 15,
+      "category1": "",
+      "category2": "",
+      "category3": "랭킹",
+      "check": "랭킹 아이콘 터치 시 랭킹 메뉴 입장 확인",
+      "test_result": "Not Tested",
+      "bts_id": "",
+      "comment": ""
+    },
+    {
+      "no": 16,
+      "category1": "",
+      "category2": "상점",
+      "category3": "상점 메뉴",
+      "check": "상점 메뉴 입장 확인",
+      "test_result": "Not Tested",
+      "bts_id": "",
+      "comment": ""
+    },
+    {
+      "no": 17,
+      "category1": "",
+      "category2": "",
+      "category3": "상품 구매",
+      "check": "상품 구매 시 정상적으로 상품이 획득되는 것 확인",
+      "test_result": "Not Tested",
+      "bts_id": "",
+      "comment": ""
+    },
+    {
+      "no": 18,
+      "category1": "이벤트",
+      "category2": "이벤트 시스템",
+      "category3": "화면",
+      "check": "이벤트 버튼 터치하여 메뉴 입장 확인",
+      "test_result": "Not Tested",
+      "bts_id": "",
+      "comment": ""
+    },
+    {
+      "no": 19,
+      "category1": "",
+      "category2": "",
+      "category3": "이벤트 상점",
+      "check": "이벤트 상점 진입 및 상품 구매 확인",
+      "test_result": "Not Tested",
+      "bts_id": "",
+      "comment": ""
+    },
+    {
+      "no": 20,
+      "category1": "",
+      "category2": "우편함",
+      "category3": "우편",
+      "check": "우편 아이콘 터치시 우편함 메뉴 오픈 확인",
+      "test_result": "Not Tested",
+      "bts_id": "",
+      "comment": ""
+    }
+  ],
+  "coverage_percentage": 0.0
+}

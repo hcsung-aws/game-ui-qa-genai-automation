@@ -74,18 +74,40 @@ class SemanticSummaryGenerator:
             if semantic_info:
                 # intent 추출
                 intent = semantic_info.get("intent", "")
+                # dict인 경우 문자열로 변환
+                if isinstance(intent, dict):
+                    intent = intent.get("action", "") or intent.get("type", "") or str(intent)
                 if intent and intent not in intents:
-                    intents.append(intent)
+                    intents.append(str(intent))
                 
-                # target_element 추출
+                # target_element 추출 (text, description, type 모두 활용)
                 target = semantic_info.get("target_element", "")
+                # dict인 경우 text, description, type 순으로 추출
+                if isinstance(target, dict):
+                    target_text = target.get("text", "")
+                    target_desc = target.get("description", "")
+                    target_type = target.get("type", "")
+                    
+                    # text가 있으면 action_descriptions에도 추가 (매칭 정확도 향상)
+                    if target_text and target_text not in action_descriptions:
+                        action_descriptions.append(target_text)
+                    
+                    # description이 있으면 action_descriptions에도 추가
+                    if target_desc and target_desc not in action_descriptions:
+                        action_descriptions.append(target_desc)
+                    
+                    # target_elements에는 text 또는 type 추가
+                    target = target_text or target_type or str(target)
                 if target and target not in target_elements:
-                    target_elements.append(target)
+                    target_elements.append(str(target))
                 
                 # context (screen_state) 추출
                 context = semantic_info.get("context", "")
+                # dict인 경우 문자열로 변환
+                if isinstance(context, dict):
+                    context = context.get("screen", "") or context.get("state", "") or str(context)
                 if context and context not in screen_states:
-                    screen_states.append(context)
+                    screen_states.append(str(context))
             
             # screen_transition에서 추가 정보 추출
             screen_transition = action.screen_transition
